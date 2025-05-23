@@ -1,4 +1,4 @@
-*.env
+googleads.env
 *.json
 __pycache__/
 *.pyc
