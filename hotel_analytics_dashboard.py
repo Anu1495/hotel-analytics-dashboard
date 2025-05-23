@@ -250,8 +250,10 @@ def safe_load_dotenv(env_path):
 class GoogleAdsConfig:
     def __init__(self, customer_id=None, is_manager=False):
         """Initialize Google Ads configuration with persistent token handling"""
-        self.customer_id = str(customer_id) if customer_id else None
-        self.is_manager = is_manager
+        # Provide default if not in session state
+        self.customer_id = str(customer_id) if customer_id else str(
+            st.session_state.get('selected_account', "1296045272")  # Default fallback
+        )
         # Load credentials from .env file
         env_path = r"C:\Users\anupa\googleads.env"
         if not safe_load_dotenv(env_path):
@@ -1566,33 +1568,26 @@ def style_dataframe(df):
 
 def initialize_session_state():
     """Initialize all session state variables with persistence"""
-    # Initialize selected_account first
+    # Initialize selected_account first with a default value
     if 'selected_account' not in st.session_state:
-        # Default to Mercure Hyde Park
-        st.session_state.selected_account = "1296045272"
+        st.session_state.selected_account = "1296045272"  # Default to Mercure Hyde Park
     
-    # Check for existing tokens in session state
+    # Initialize other required session state variables
     if 'manager_connected' not in st.session_state:
-        # Try to load from persistent storage
-        manager_config = GoogleAdsConfig(customer_id="2101035405", is_manager=True)
-        if manager_config.access_token and manager_config.token_expiry and datetime.now() < manager_config.token_expiry:
-            st.session_state.manager_connected = True
-            st.session_state.manager = GoogleAdsManager(manager_config)
-        else:
-            st.session_state.manager_connected = False
-            st.session_state.manager = None
+        st.session_state.manager_connected = False
     
     if 'client_connected' not in st.session_state:
-        client_config = GoogleAdsConfig(customer_id=st.session_state.selected_account)
-        if client_config.access_token and client_config.token_expiry and datetime.now() < client_config.token_expiry:
-            st.session_state.client_connected = True
-            st.session_state.client_manager = GoogleAdsManager(client_config)
-        else:
-            st.session_state.client_connected = False
-            st.session_state.client_manager = None
+        st.session_state.client_connected = False
+    
+    if 'manager' not in st.session_state:
+        st.session_state.manager = None
+    
+    if 'client_manager' not in st.session_state:
+        st.session_state.client_manager = None
     
     if 'ads_data' not in st.session_state:
         st.session_state.ads_data = pd.DataFrame()
+    
     if 'keywords_data' not in st.session_state:
         st.session_state.keywords_data = pd.DataFrame()
 def connect_manager_account():
