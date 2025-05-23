@@ -250,6 +250,8 @@ def safe_load_dotenv(env_path):
 class GoogleAdsConfig:
     def __init__(self, customer_id=None, is_manager=False):
         """Initialize Google Ads configuration with persistent token handling"""
+        self.customer_id = str(customer_id) if customer_id else None
+        self.is_manager = is_manager
         # Load credentials from .env file
         env_path = r"C:\Users\anupa\googleads.env"
         if not safe_load_dotenv(env_path):
@@ -1564,6 +1566,11 @@ def style_dataframe(df):
 
 def initialize_session_state():
     """Initialize all session state variables with persistence"""
+    # Initialize selected_account first
+    if 'selected_account' not in st.session_state:
+        # Default to Mercure Hyde Park
+        st.session_state.selected_account = "1296045272"
+    
     # Check for existing tokens in session state
     if 'manager_connected' not in st.session_state:
         # Try to load from persistent storage
@@ -1576,8 +1583,6 @@ def initialize_session_state():
             st.session_state.manager = None
     
     if 'client_connected' not in st.session_state:
-        # Default to Mercure Hyde Park
-        st.session_state.selected_account = "1296045272"
         client_config = GoogleAdsConfig(customer_id=st.session_state.selected_account)
         if client_config.access_token and client_config.token_expiry and datetime.now() < client_config.token_expiry:
             st.session_state.client_connected = True
@@ -2080,10 +2085,11 @@ def display_connection_details():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def main():
-    st.markdown('<h1 class="dashboard-title">📊 Ecommerce Dashboard</h1>', unsafe_allow_html=True)
-    
-    # Initialize session state with persistence
+    # Initialize session state first
     initialize_session_state()
+    
+    # Then proceed with the rest of your app
+    st.markdown('<h1 class="dashboard-title">📊 Ecommerce Dashboard</h1>', unsafe_allow_html=True)
     
     # Initialize date_ranges with a default value
     date_ranges = []
