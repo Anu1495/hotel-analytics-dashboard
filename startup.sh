@@ -11,7 +11,7 @@ if [ -f "requirements.txt" ]; then
 fi
 
 # Set default port if not specified
-PORT=${PORT:-8000}
+PORT=${PORT:-8001}
 
 # Start Streamlit server with explicit settings
 streamlit run server.py \
