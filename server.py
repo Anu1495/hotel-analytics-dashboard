@@ -1,11 +1,15 @@
-from waitress import serve
-from hotel_analytics_dashboard import main  # Import your Streamlit app
+import streamlit as st
 
-# Create a WSGI app entry point
-def app(environ, start_response):
-    main()  # This may need adjustment based on your app structure
-    start_response('200 OK', [('Content-Type', 'text/html')])
-    return [b"Streamlit App Running"]
+# Your Streamlit app code here
+def main():
+    st.title("Hotel Analytics Dashboard")
+    
+    # Add your actual Streamlit components here
+    st.write("Welcome to the Hotel Analytics Dashboard!")
+    
+    # Example: Load data, show charts, etc.
+    # df = pd.read_csv("hotel_data.csv")
+    # st.line_chart(df["occupancy_rate"])
 
-if __name__ == '__main__':
-    serve(app, host='0.0.0.0', port=8001)
+if __name__ == "__main__":
+    main()
