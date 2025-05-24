@@ -14,7 +14,7 @@ fi
 PORT=${PORT:-8001}
 
 # Start Streamlit server with explicit settings
-streamlit run server.py \
+streamlit run hotel_analytics_dashboard.py \
     --server.port=$PORT \
     --server.address=0.0.0.0 \
     --server.headless=true \
