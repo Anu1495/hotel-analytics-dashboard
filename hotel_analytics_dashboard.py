@@ -846,15 +846,16 @@ class GoogleAdsManager:
             st.error(traceback.format_exc())
             return pd.DataFrame()
 
-# Path to service account JSON key file
-SERVICE_ACCOUNT_FILE = "C:/Users/anupa/Downloads/ltg-dashboard-454811-f1003b7788c9.json"
-
-# Authentication
 @st.cache_resource
 def get_ga_client():
     try:
-        credentials = service_account.Credentials.from_service_account_file(
-            SERVICE_ACCOUNT_FILE, scopes=["https://www.googleapis.com/auth/analytics.readonly"])
+        # Get from environment variable (set in Azure config)
+        service_account_info = json.loads(os.getenv("GA_SERVICE_ACCOUNT_JSON"))
+        
+        credentials = service_account.Credentials.from_service_account_info(
+            service_account_info,
+            scopes=["https://www.googleapis.com/auth/analytics.readonly"]
+        )
         return BetaAnalyticsDataClient(credentials=credentials)
     except Exception as e:
         st.error(f"Failed to authenticate: {str(e)}")
