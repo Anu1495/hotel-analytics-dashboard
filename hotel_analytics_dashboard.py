@@ -510,7 +510,7 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     # Fetch GA revenue from paid sources only
     with st.spinner("Fetching GA revenue from paid sources..."):
         ga_revenue = fetch_ga4_paid_revenue(property_id, start_date, end_date)
-        total_revenue = ga_revenue['revenue'].sum()
+        total_revenue = ga_revenue['revenue'].sum() if not ga_revenue.empty else 0
     
     # Fetch Google Ads spend
     with st.spinner("Fetching Google Ads spend..."):
@@ -558,7 +558,6 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     # Add date range info
     st.caption(f"Date range: {start_date} to {end_date}")
     st.markdown('</div>', unsafe_allow_html=True)
-
 def fetch_ga4_paid_revenue(property_id, start_date, end_date):
     """Fetch GA4 revenue data from paid sources only (Cross Network and Paid Search)"""
     try:
@@ -597,10 +596,15 @@ def fetch_ga4_paid_revenue(property_id, start_date, end_date):
                 'revenue': revenue
             })
         
-        return pd.DataFrame(data)
+        # Return DataFrame with revenue column, even if empty
+        df = pd.DataFrame(data)
+        if df.empty:
+            return pd.DataFrame(columns=['date', 'source_medium', 'revenue'])
+        return df
+        
     except Exception as e:
         st.error(f"Failed to fetch GA4 paid revenue data: {str(e)}")
-        return pd.DataFrame()
+        return pd.DataFrame(columns=['date', 'source_medium', 'revenue'])
 class GoogleAdsManager:
     def __init__(self, config):
         self.config = config
