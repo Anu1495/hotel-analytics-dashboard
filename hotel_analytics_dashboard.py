@@ -10,6 +10,7 @@ import streamlit as st
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 import webbrowser
+import base64
 from urllib.parse import urlparse, parse_qs
 import requests
 # Set page config must be the first Streamlit command
