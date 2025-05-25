@@ -848,18 +848,16 @@ class GoogleAdsManager:
 
 @st.cache_resource
 def get_ga_client():
-    try:
-        # Get from environment variable (set in Azure config)
-        service_account_info = json.loads(os.getenv("GA_SERVICE_ACCOUNT_JSON"))
-        
-        credentials = service_account.Credentials.from_service_account_info(
-            service_account_info,
-            scopes=["https://www.googleapis.com/auth/analytics.readonly"]
-        )
-        return BetaAnalyticsDataClient(credentials=credentials)
-    except Exception as e:
-        st.error(f"Failed to authenticate: {str(e)}")
-        st.stop()
+    encoded_json = os.getenv("GA_SERVICE_ACCOUNT_JSON")
+    if not encoded_json:
+        raise ValueError("GA_SERVICE_ACCOUNT_JSON not set in environment variables")
+    
+    service_account_info = json.loads(base64.b64decode(encoded_json))
+    credentials = service_account.Credentials.from_service_account_info(
+        service_account_info,
+        scopes=["https://www.googleapis.com/auth/analytics.readonly"]
+    )
+    return BetaAnalyticsDataClient(credentials=credentials)
 
 @st.cache_resource
 def get_ga_admin_client():
