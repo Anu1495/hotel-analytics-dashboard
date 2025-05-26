@@ -222,45 +222,41 @@ def calculate_roi_by_hotel(ga_properties, ads_accounts, start_date, end_date):
     
     return pd.DataFrame(roi_data)
 
-def safe_load_dotenv(env_path):
-    """Safely load .env file with UTF-8 encoding, converting if needed"""
+def safe_load_dotenv(env_path=None):
+    """Safely load environment variables, with Azure compatibility"""
     try:
-        # First try standard UTF-8 loading
-        load_dotenv(env_path, encoding='utf-8')
-        return True
-    except UnicodeDecodeError:
-        try:
-            # If UTF-8 fails, try reading with error correction
-            with codecs.open(env_path, 'r', encoding='utf-8', errors='replace') as f:
-                content = f.read()
-            
-            # Create a temporary corrected version
-            corrected_path = env_path + '.corrected'
-            with codecs.open(corrected_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            
-            # Load the corrected version
-            load_dotenv(corrected_path, encoding='utf-8')
-            st.warning(f"Had to correct encoding issues in {env_path}. Loaded from corrected version.")
-            return True
-        except Exception as e:
-            st.error(f"Failed to load .env file: {str(e)}")
-            st.error("Please ensure your .env file is saved as UTF-8 format.")
+        # Try loading from .env file if path is provided (for local development)
+        if env_path and Path(env_path).exists():
+            load_dotenv(env_path, encoding='utf-8')
+        
+        # Verify we have required variables (works for both .env and Azure env vars)
+        required_vars = [
+            "GOOGLE_ADS_CLIENT_ID",
+            "GOOGLE_ADS_CLIENT_SECRET", 
+            "GOOGLE_ADS_DEVELOPER_TOKEN",
+            "GOOGLE_ADS_REFRESH_TOKEN"
+        ]
+        
+        missing_vars = [var for var in required_vars if not os.getenv(var)]
+        if missing_vars:
+            st.error(f"Missing required environment variables: {', '.join(missing_vars)}")
             return False
+        return True
+    except Exception as e:
+        st.error(f"Failed to load environment variables: {str(e)}")
+        return False
+
 
 class GoogleAdsConfig:
     def __init__(self, customer_id=None, is_manager=False):
-        """Initialize Google Ads configuration with persistent token handling"""
-        # Provide default if not in session state
-        self.customer_id = str(customer_id) if customer_id else str(
-            st.session_state.get('selected_account', "1296045272")  # Default fallback
-        )
-        # Load credentials from .env file
-        # At the start of your main code
+        """Initialize Google Ads configuration"""
+        # Try loading without env_path first (for Azure)
         if not safe_load_dotenv():
-            st.error("Application configuration failed. Please check environment variables.")
-            st.stop()
-            
+            # Fallback to local .env if in development
+            if not safe_load_dotenv(Path.home() / "googleads.env"):
+                st.error("Failed to load Google Ads configuration")
+                st.stop()
+        
         self.client_id = os.getenv("GOOGLE_ADS_CLIENT_ID")
         self.client_secret = os.getenv("GOOGLE_ADS_CLIENT_SECRET")
         self.developer_token = os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN")
