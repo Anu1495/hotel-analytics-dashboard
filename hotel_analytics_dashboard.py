@@ -286,17 +286,19 @@ class GoogleAdsConfig:
             st.stop()
 
     def _load_tokens(self):
-        """Load tokens from file if they exist"""
-        try:
-            if self.token_file.exists():
-                with open(self.token_file, 'r') as f:
-                    token_data = json.load(f)
-                    self.access_token = token_data.get('access_token')
-                    expiry = token_data.get('token_expiry')
-                    if expiry:
-                        self.token_expiry = datetime.fromisoformat(expiry)
-        except Exception as e:
-            st.warning(f"Failed to load tokens from file: {str(e)}")
+    """Load tokens from file if they exist"""
+    try:
+        if self.token_file.exists():
+            with open(self.token_file, 'r') as f:
+                token_data = json.load(f)
+                self.access_token = token_data.get('access_token')
+                expiry = token_data.get('token_expiry')
+                if expiry:
+                    self.token_expiry = datetime.fromisoformat(expiry)
+    except Exception as e:
+        st.warning(f"Failed to load tokens from file: {str(e)}")
+        # In Azure, you might want to use Azure Blob Storage instead:
+        # self._load_tokens_from_azure_blob()
 
     def _save_tokens(self):
         """Save tokens to file"""
