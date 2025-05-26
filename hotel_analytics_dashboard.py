@@ -1689,8 +1689,11 @@ def display_ads_kpis():
     """Display key performance indicators for Google Ads data"""
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("📈 Key Performance Indicators (All Campaigns)")
-    
     ads_data = st.session_state.ads_data
+    if ads_data.empty or 'cost' not in ads_data.columns:
+        st.error("No valid Google Ads data available")
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
     total_cost = ads_data['cost'].sum()
     total_clicks = ads_data['clicks'].sum()
     total_impressions = ads_data['impressions'].sum()
