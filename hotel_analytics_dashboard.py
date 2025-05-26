@@ -256,9 +256,9 @@ class GoogleAdsConfig:
             st.session_state.get('selected_account', "1296045272")  # Default fallback
         )
         # Load credentials from .env file
-        env_path = r"C:\Users\anupa\googleads.env"
-        if not safe_load_dotenv(env_path):
-            st.error("Failed to load .env file")
+        # At the start of your main code
+        if not safe_load_dotenv():
+            st.error("Application configuration failed. Please check environment variables.")
             st.stop()
             
         self.client_id = os.getenv("GOOGLE_ADS_CLIENT_ID")
