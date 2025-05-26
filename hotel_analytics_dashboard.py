@@ -1,4 +1,3 @@
-
 # Hotel Indigo London Paddington
 # 771-129-1295
 # Mercure Hyde Park Hotel
@@ -7,17 +6,15 @@
 # 378-794-0566
 
 import streamlit as st
-
-st.set_page_config(page_title="Ecommerce Dashboard", layout="wide", page_icon="📊")
 # Add these imports at the top of your file
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
-import orjson
-orjson.OPT_NON_STR_KEYS  # This will fail fast if there's an issue
 import webbrowser
+import base64
 from urllib.parse import urlparse, parse_qs
 import requests
 # Set page config must be the first Streamlit command
+st.set_page_config(page_title="Ecommerce Dashboard", layout="wide", page_icon="📊")
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
@@ -249,6 +246,7 @@ def safe_load_dotenv(env_path=None):
         st.error(f"Failed to load environment variables: {str(e)}")
         return False
 
+
 class GoogleAdsConfig:
     def __init__(self, customer_id=None, is_manager=False):
         """Initialize Google Ads configuration"""
@@ -263,7 +261,6 @@ class GoogleAdsConfig:
         self.client_secret = os.getenv("GOOGLE_ADS_CLIENT_SECRET")
         self.developer_token = os.getenv("GOOGLE_ADS_DEVELOPER_TOKEN")
         self.refresh_token = os.getenv("GOOGLE_ADS_REFRESH_TOKEN")
-        
         
         # MCC ID (Manager account)
         self.login_customer_id = os.getenv("GOOGLE_ADS_LOGIN_CUSTOMER_ID") if is_manager else None
@@ -285,17 +282,19 @@ class GoogleAdsConfig:
             st.stop()
 
     def _load_tokens(self):
-        """Load tokens from file if they exist"""
-        try:
-            if self.token_file.exists():
-                with open(self.token_file, 'r') as f:
-                    token_data = json.load(f)
-                    self.access_token = token_data.get('access_token')
-                    expiry = token_data.get('token_expiry')
-                    if expiry:
-                        self.token_expiry = datetime.fromisoformat(expiry)
-        except Exception as e:
-            st.warning(f"Failed to load tokens from file: {str(e)}")
+    """Load tokens from file if they exist"""
+    try:
+        if self.token_file.exists():
+            with open(self.token_file, 'r') as f:
+                token_data = json.load(f)
+                self.access_token = token_data.get('access_token')
+                expiry = token_data.get('token_expiry')
+                if expiry:
+                    self.token_expiry = datetime.fromisoformat(expiry)
+    except Exception as e:
+        st.warning(f"Failed to load tokens from file: {str(e)}")
+        # In Azure, you might want to use Azure Blob Storage instead:
+        # self._load_tokens_from_azure_blob()
 
     def _save_tokens(self):
         """Save tokens to file"""
@@ -509,7 +508,7 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     # Fetch GA revenue from paid sources only
     with st.spinner("Fetching GA revenue from paid sources..."):
         ga_revenue = fetch_ga4_paid_revenue(property_id, start_date, end_date)
-        total_revenue = ga_revenue['revenue'].sum()
+        total_revenue = ga_revenue['revenue'].sum() if not ga_revenue.empty else 0
     
     # Fetch Google Ads spend
     with st.spinner("Fetching Google Ads spend..."):
@@ -557,7 +556,6 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     # Add date range info
     st.caption(f"Date range: {start_date} to {end_date}")
     st.markdown('</div>', unsafe_allow_html=True)
-
 def fetch_ga4_paid_revenue(property_id, start_date, end_date):
     """Fetch GA4 revenue data from paid sources only (Cross Network and Paid Search)"""
     try:
@@ -596,10 +594,15 @@ def fetch_ga4_paid_revenue(property_id, start_date, end_date):
                 'revenue': revenue
             })
         
-        return pd.DataFrame(data)
+        # Return DataFrame with revenue column, even if empty
+        df = pd.DataFrame(data)
+        if df.empty:
+            return pd.DataFrame(columns=['date', 'source_medium', 'revenue'])
+        return df
+        
     except Exception as e:
         st.error(f"Failed to fetch GA4 paid revenue data: {str(e)}")
-        return pd.DataFrame()
+        return pd.DataFrame(columns=['date', 'source_medium', 'revenue'])
 class GoogleAdsManager:
     def __init__(self, config):
         self.config = config
@@ -620,13 +623,13 @@ class GoogleAdsManager:
                 "client_secret": self.config.client_secret,
                 "refresh_token": self.config.refresh_token,
                 "use_proto_plus": True,
+                "access_token": credentials['access_token']
             }
             
             # Only add login_customer_id if accessing a client account through a manager
             if self.config.login_customer_id and self.config.customer_id != self.config.login_customer_id:
                 googleads_config["login_customer_id"] = str(self.config.login_customer_id)
             
-            # Initialize the client
             self.client = GoogleAdsClient.load_from_dict(googleads_config)
             return True
             
@@ -635,152 +638,7 @@ class GoogleAdsManager:
             st.error(traceback.format_exc())
             return False
     
-    def get_campaigns(self, customer_id):
-        """Fetch list of campaigns for dropdown selection"""
-        try:
-            if not self.client:
-                if not self.initialize_client():
-                    st.error("Failed to initialize Google Ads client")
-                    return pd.DataFrame(columns=['id', 'name', 'status'])  # Return empty DataFrame with expected columns
-                
-            ga_service = self.client.get_service("GoogleAdsService")
-            
-            query = """
-                SELECT
-                    campaign.id,
-                    campaign.name,
-                    campaign.status
-                FROM campaign
-                ORDER BY campaign.name
-            """
-            
-            search_request = self.client.get_type("SearchGoogleAdsRequest")
-            search_request.customer_id = customer_id
-            search_request.query = query
-            
-            response = ga_service.search(request=search_request)
-            
-            campaigns = []
-            for row in response:
-                campaigns.append({
-                    'id': str(row.campaign.id),  # Ensure ID is string
-                    'name': row.campaign.name,
-                    'status': str(row.campaign.status)
-                })
-            
-            return pd.DataFrame(campaigns)
-        except Exception as e:
-            st.error(f"Failed to fetch campaigns: {str(e)}")
-            return pd.DataFrame(columns=['id', 'name', 'status'])  # Return empty DataFrame with expected columns
 
-    def get_ad_groups(self, customer_id, campaign_id):
-        """Fetch ad groups for a specific campaign"""
-        try:
-            if not self.client:
-                if not self.initialize_client():
-                    st.error("Failed to initialize Google Ads client")
-                    return pd.DataFrame(columns=['id', 'name', 'status'])
-                
-            ga_service = self.client.get_service("GoogleAdsService")
-            
-            query = f"""
-                SELECT
-                    ad_group.id,
-                    ad_group.name,
-                    ad_group.status
-                FROM ad_group
-                WHERE campaign.id = {campaign_id}
-                ORDER BY ad_group.name
-            """
-            
-            search_request = self.client.get_type("SearchGoogleAdsRequest")
-            search_request.customer_id = customer_id
-            search_request.query = query
-            
-            response = ga_service.search(request=search_request)
-            
-            ad_groups = []
-            for row in response:
-                ad_groups.append({
-                    'id': str(row.ad_group.id),
-                    'name': row.ad_group.name,
-                    'status': str(row.ad_group.status)
-                })
-            
-            return pd.DataFrame(ad_groups)
-        except Exception as e:
-            st.error(f"Failed to fetch ad groups: {str(e)}")
-            return pd.DataFrame(columns=['id', 'name', 'status'])
-        # Add this to your GoogleAdsManager class
-    def clone_campaign_for_new_date(self, customer_id, base_campaign_id, new_date):
-        """Public method to clone a campaign for a new date"""
-        if not self.client:
-            if not self.initialize_client():
-                st.error("Failed to initialize Google Ads client")
-                return None
-        
-        return create_similar_campaign(self.client, customer_id, base_campaign_id, new_date)
-    def create_responsive_search_ad(self, customer_id, ad_group_id, headlines, descriptions, final_urls, path1=None, path2=None):
-        """Create a responsive search ad"""
-        try:
-            client = self.client
-            ad_group_ad_service = client.get_service("AdGroupAdService")
-            ad_group_service = client.get_service("AdGroupService")
-            
-            # Create the ad group ad
-            ad_group_ad_operation = client.get_type("AdGroupAdOperation")
-            ad_group_ad = ad_group_ad_operation.create
-            
-            # Set the ad group
-            ad_group_ad.ad_group = ad_group_service.ad_group_path(
-                customer_id, ad_group_id
-            )
-            
-            # Set the ad type to responsive search ad
-            ad_group_ad.ad.final_urls.extend([final_urls])
-            
-            # Set the ad rotation mode
-            ad_group_ad.ad.ad_rotation_mode = client.enums.AdRotationModeEnum.OPTIMIZE
-            
-            # Set the responsive search ad info
-            responsive_search_ad_info = ad_group_ad.ad.responsive_search_ad
-            
-            # Add headlines
-            for i, headline in enumerate(headlines[:15]):  # Max 15 headlines
-                ad_text_asset = client.get_type("AdTextAsset")
-                ad_text_asset.text = headline
-                if i == 0:
-                    ad_text_asset.pinned_field = client.enums.ServedAssetFieldTypeEnum.HEADLINE_1
-                elif i == 1:
-                    ad_text_asset.pinned_field = client.enums.ServedAssetFieldTypeEnum.HEADLINE_2
-                responsive_search_ad_info.headlines.append(ad_text_asset)
-            
-            # Add descriptions
-            for i, description in enumerate(descriptions[:4]):  # Max 4 descriptions
-                ad_text_asset = client.get_type("AdTextAsset")
-                ad_text_asset.text = description
-                if i == 0:
-                    ad_text_asset.pinned_field = client.enums.ServedAssetFieldTypeEnum.DESCRIPTION_1
-                elif i == 1:
-                    ad_text_asset.pinned_field = client.enums.ServedAssetFieldTypeEnum.DESCRIPTION_2
-                responsive_search_ad_info.descriptions.append(ad_text_asset)
-            
-            # Set path fields if provided
-            if path1:
-                ad_group_ad.ad.final_url_suffix = f"lp={path1}"
-            if path2:
-                ad_group_ad.ad.final_url_suffix = f"{ad_group_ad.ad.final_url_suffix}&sub={path2}" if hasattr(ad_group_ad.ad, 'final_url_suffix') else f"sub={path2}"
-            
-            # Create the ad
-            response = ad_group_ad_service.mutate_ad_group_ads(
-                customer_id=customer_id,
-                operations=[ad_group_ad_operation]
-            )
-            
-            return response.results[0].resource_name
-        except Exception as e:
-            st.error(f"Failed to create responsive search ad: {str(e)}")
-            return None
     def fetch_google_ads_data(self, customer_id, start_date, end_date, test_mode=False):
         """Fetch Google Ads data for the specified customer and date range"""
         try:
@@ -991,19 +849,18 @@ class GoogleAdsManager:
             st.error(traceback.format_exc())
             return pd.DataFrame()
 
-# Path to service account JSON key file
-SERVICE_ACCOUNT_FILE = "C:/Users/anupa/Downloads/ltg-dashboard-454811-f1003b7788c9.json"
-
-# Authentication
 @st.cache_resource
 def get_ga_client():
-    try:
-        credentials = service_account.Credentials.from_service_account_file(
-            SERVICE_ACCOUNT_FILE, scopes=["https://www.googleapis.com/auth/analytics.readonly"])
-        return BetaAnalyticsDataClient(credentials=credentials)
-    except Exception as e:
-        st.error(f"Failed to authenticate: {str(e)}")
-        st.stop()
+    encoded_json = os.getenv("GA_SERVICE_ACCOUNT_JSON")
+    if not encoded_json:
+        raise ValueError("GA_SERVICE_ACCOUNT_JSON not set in environment variables")
+    
+    service_account_info = json.loads(base64.b64decode(encoded_json))
+    credentials = service_account.Credentials.from_service_account_info(
+        service_account_info,
+        scopes=["https://www.googleapis.com/auth/analytics.readonly"]
+    )
+    return BetaAnalyticsDataClient(credentials=credentials)
 
 @st.cache_resource
 def get_ga_admin_client():
@@ -1466,236 +1323,7 @@ def create_ga4_audience(property_id, audience_name, checkin_date):
                "2. Google Analytics Admin API is enabled\n"
                f"3. Correct patterns: Include: {include_pattern}, Exclude: {exclude_pattern}")
         return None
-def fetch_campaign_details(client, customer_id, campaign_id):
-    """Fetch all details of a specific campaign including its structure"""
-    try:
-        ga_service = client.get_service("GoogleAdsService")
-        
-        query = f"""
-            SELECT
-                campaign.id,
-                campaign.name,
-                campaign.status,
-                campaign.advertising_channel_type,
-                campaign.advertising_channel_sub_type,
-                campaign.network_settings.target_content_network,
-                campaign.network_settings.target_google_search,
-                campaign.network_settings.target_search_network,
-                campaign.network_settings.target_partner_search_network,
-                campaign.bidding_strategy_type,
-                campaign.manual_cpc.enhanced_cpc_enabled,
-                campaign.start_date,
-                campaign.end_date,
-                campaign.campaign_budget,
-                campaign_budget.amount_micros,
-                campaign_budget.explicitly_shared,
-                campaign_budget.period
-            FROM campaign
-            WHERE campaign.id = {campaign_id}
-        """
-        
-        search_request = client.get_type("SearchGoogleAdsRequest")
-        search_request.customer_id = customer_id
-        search_request.query = query
-        
-        response = ga_service.search(request=search_request)
-        
-        campaign_details = {}
-        for row in response:
-            campaign_details = {
-                'id': row.campaign.id,
-                'name': row.campaign.name,
-                'status': str(row.campaign.status),
-                'channel_type': str(row.campaign.advertising_channel_type),
-                'channel_sub_type': str(row.campaign.advertising_channel_sub_type),
-                'target_content_network': row.campaign.network_settings.target_content_network,
-                'target_google_search': row.campaign.network_settings.target_google_search,
-                'target_search_network': row.campaign.network_settings.target_search_network,
-                'target_partner_search_network': row.campaign.network_settings.target_partner_search_network,
-                'bidding_strategy_type': str(row.campaign.bidding_strategy_type),
-                'enhanced_cpc_enabled': row.campaign.manual_cpc.enhanced_cpc_enabled,
-                'start_date': row.campaign.start_date,
-                'end_date': row.campaign.end_date,
-                'budget_amount': row.campaign_budget.amount_micros / 1000000,
-                'budget_explicitly_shared': row.campaign_budget.explicitly_shared,
-                'budget_period': str(row.campaign_budget.period),
-                'budget_resource_name': row.campaign.campaign_budget
-            }
-        
-        return campaign_details
     
-    except Exception as e:
-        st.error(f"Failed to fetch campaign details: {str(e)}")
-        return None
-
-def fetch_ad_group_details(client, customer_id, campaign_id):
-    """Fetch all ad groups and their details for a campaign"""
-    try:
-        ga_service = client.get_service("GoogleAdsService")
-        
-        query = f"""
-            SELECT
-                ad_group.id,
-                ad_group.name,
-                ad_group.status,
-                ad_group.type,
-                ad_group.cpc_bid_micros,
-                ad_group.target_cpa_micros,
-                ad_group.target_roas,
-                ad_group.target_roas_source,
-                ad_group.cpv_bid_micros,
-                ad_group.cpm_bid_micros,
-                ad_group.percent_cpc_bid_micros,
-                ad_group.effective_target_cpa_micros,
-                ad_group.effective_target_cpa_source,
-                ad_group.effective_target_roas,
-                ad_group.effective_target_roas_source
-            FROM ad_group
-            WHERE campaign.id = {campaign_id}
-        """
-        
-        search_request = client.get_type("SearchGoogleAdsRequest")
-        search_request.customer_id = customer_id
-        search_request.query = query
-        
-        response = ga_service.search(request=search_request)
-        
-        ad_groups = []
-        for row in response:
-            ad_groups.append({
-                'id': row.ad_group.id,
-                'name': row.ad_group.name,
-                'status': str(row.ad_group.status),
-                'type': str(row.ad_group.type),
-                'cpc_bid_micros': row.ad_group.cpc_bid_micros,
-                'target_cpa_micros': row.ad_group.target_cpa_micros,
-                'target_roas': row.ad_group.target_roas,
-                'target_roas_source': str(row.ad_group.target_roas_source),
-                'cpv_bid_micros': row.ad_group.cpv_bid_micros,
-                'cpm_bid_micros': row.ad_group.cpm_bid_micros,
-                'percent_cpc_bid_micros': row.ad_group.percent_cpc_bid_micros,
-                'effective_target_cpa_micros': row.ad_group.effective_target_cpa_micros,
-                'effective_target_cpa_source': str(row.ad_group.effective_target_cpa_source),
-                'effective_target_roas': row.ad_group.effective_target_roas,
-                'effective_target_roas_source': str(row.ad_group.effective_target_roas_source)
-            })
-        
-        return ad_groups
-    
-    except Exception as e:
-        st.error(f"Failed to fetch ad group details: {str(e)}")
-        return []
-
-def fetch_ads_details(client, customer_id, ad_group_id):
-    """Fetch all ads in an ad group"""
-    try:
-        ga_service = client.get_service("GoogleAdsService")
-        
-        query = f"""
-            SELECT
-                ad_group_ad.ad.id,
-                ad_group_ad.ad.type,
-                ad_group_ad.ad.responsive_search_ad.headlines,
-                ad_group_ad.ad.responsive_search_ad.descriptions,
-                ad_group_ad.ad.responsive_search_ad.path1,
-                ad_group_ad.ad.responsive_search_ad.path2,
-                ad_group_ad.ad.final_urls
-            FROM ad_group_ad
-            WHERE ad_group.id = {ad_group_id}
-        """
-        
-        search_request = client.get_type("SearchGoogleAdsRequest")
-        search_request.customer_id = customer_id
-        search_request.query = query
-        
-        response = ga_service.search(request=search_request)
-        
-        ads = []
-        for row in response:
-            if row.ad_group_ad.ad.type == client.enums.AdTypeEnum.RESPONSIVE_SEARCH_AD:
-                rsa = row.ad_group_ad.ad.responsive_search_ad
-                ads.append({
-                    'id': row.ad_group_ad.ad.id,
-                    'type': 'RESPONSIVE_SEARCH_AD',
-                    'headlines': [h.text for h in rsa.headlines],
-                    'descriptions': [d.text for d in rsa.descriptions],
-                    'path1': rsa.path1,
-                    'path2': rsa.path2,
-                    'final_urls': list(row.ad_group_ad.ad.final_urls)
-                })
-        
-        return ads
-    
-    except Exception as e:
-        st.error(f"Failed to fetch ad details: {str(e)}")
-        return []
-
-def create_similar_campaign(client, customer_id, base_campaign_id, new_date):
-    """Create a new campaign similar to an existing one but with a new date"""
-    try:
-        # Fetch base campaign details
-        campaign_details = fetch_campaign_details(client, customer_id, base_campaign_id)
-        if not campaign_details:
-            st.error("Could not fetch base campaign details")
-            return None
-        
-        # Generate new campaign name with date
-        new_campaign_name = f"{campaign_details['name'].rsplit('(', 1)[0].strip()} ({new_date})"
-        
-        # Get services
-        campaign_service = client.get_service("CampaignService")
-        campaign_budget_service = client.get_service("CampaignBudgetService")
-        
-        # Create budget operation
-        budget_operation = client.get_type("CampaignBudgetOperation")
-        budget = budget_operation.create
-        budget.name = f"{new_campaign_name} Budget"
-        budget.amount_micros = int(campaign_details['budget_amount'] * 1000000)
-        budget.delivery_method = client.enums.BudgetDeliveryMethodEnum.STANDARD
-        budget.explicitly_shared = campaign_details['budget_explicitly_shared']
-        
-        # Add budget operation
-        budget_response = campaign_budget_service.mutate_campaign_budgets(
-            customer_id=customer_id,
-            operations=[budget_operation]
-        )
-        budget_id = budget_response.results[0].resource_name.split('/')[-1]
-        
-        # Create campaign operation
-        campaign_operation = client.get_type("CampaignOperation")
-        campaign = campaign_operation.create
-        campaign.name = new_campaign_name
-        campaign.advertising_channel_type = client.enums.AdvertisingChannelTypeEnum.SEARCH
-        campaign.status = client.enums.CampaignStatusEnum.PAUSED  # Start paused for review
-        campaign.manual_cpc.enhanced_cpc_enabled = campaign_details['enhanced_cpc_enabled']
-        campaign.campaign_budget = campaign_budget_service.campaign_budget_path(
-            customer_id, budget_id)
-        
-        # Set network settings
-        campaign.network_settings.target_google_search = campaign_details['target_google_search']
-        campaign.network_settings.target_search_network = campaign_details['target_search_network']
-        campaign.network_settings.target_content_network = campaign_details['target_content_network']
-        campaign.network_settings.target_partner_search_network = campaign_details['target_partner_search_network']
-        
-        # Set dates (adjust as needed)
-        campaign.start_date = datetime.now().strftime('%Y%m%d')
-        campaign.end_date = (datetime.now() + timedelta(days=30)).strftime('%Y%m%d')
-        
-        # Add campaign operation
-        campaign_response = campaign_service.mutate_campaigns(
-            customer_id=customer_id,
-            operations=[campaign_operation]
-        )
-        new_campaign_id = campaign_response.results[0].resource_name.split('/')[-1]
-        
-        return new_campaign_id
-    
-    except Exception as e:
-        st.error(f"Failed to create similar campaign: {str(e)}")
-        st.error(traceback.format_exc())
-        return None
-
-
 def fetch_purchases_by_checkin_date(property_id, start_date_str, end_date_str):
     try:
         client = get_ga_client()
@@ -1942,30 +1570,26 @@ def style_dataframe(df):
 
 def initialize_session_state():
     """Initialize all session state variables with persistence"""
-    # Check for existing tokens in session state
+    # Initialize selected_account first with a default value
+    if 'selected_account' not in st.session_state:
+        st.session_state.selected_account = "1296045272"  # Default to Mercure Hyde Park
+    
+    # Initialize other required session state variables
     if 'manager_connected' not in st.session_state:
-        # Try to load from persistent storage
-        manager_config = GoogleAdsConfig(customer_id="2101035405", is_manager=True)
-        if manager_config.access_token and manager_config.token_expiry and datetime.now() < manager_config.token_expiry:
-            st.session_state.manager_connected = True
-            st.session_state.manager = GoogleAdsManager(manager_config)
-        else:
-            st.session_state.manager_connected = False
-            st.session_state.manager = None
+        st.session_state.manager_connected = False
     
     if 'client_connected' not in st.session_state:
-        # Default to Mercure Hyde Park
-        st.session_state.selected_account = "1296045272"
-        client_config = GoogleAdsConfig(customer_id=st.session_state.selected_account)
-        if client_config.access_token and client_config.token_expiry and datetime.now() < client_config.token_expiry:
-            st.session_state.client_connected = True
-            st.session_state.client_manager = GoogleAdsManager(client_config)
-        else:
-            st.session_state.client_connected = False
-            st.session_state.client_manager = None
+        st.session_state.client_connected = False
+    
+    if 'manager' not in st.session_state:
+        st.session_state.manager = None
+    
+    if 'client_manager' not in st.session_state:
+        st.session_state.client_manager = None
     
     if 'ads_data' not in st.session_state:
         st.session_state.ads_data = pd.DataFrame()
+    
     if 'keywords_data' not in st.session_state:
         st.session_state.keywords_data = pd.DataFrame()
 def connect_manager_account():
@@ -1976,8 +1600,7 @@ def connect_manager_account():
             manager_config = GoogleAdsConfig(customer_id="2101035405", is_manager=True)
             
             # First get credentials
-            credentials = manager_config.get_credentials()
-            if not credentials:
+            if not manager_config.get_credentials():
                 st.error("Failed to get authentication token")
                 return False
             
@@ -2005,8 +1628,7 @@ def connect_client_account():
             client_config = GoogleAdsConfig(customer_id=st.session_state.selected_account)
             
             # First get credentials
-            credentials = client_config.get_credentials()
-            if not credentials:
+            if not client_config.get_credentials():
                 st.error("Failed to get authentication token")
                 return False
             
@@ -2024,6 +1646,7 @@ def connect_client_account():
             st.error("2. Correct client ID in selection")
             st.error(f"3. API error: {e}")
             return False
+
 def fetch_ads_data(start_date, end_date):
     """Fetch Google Ads data for the selected account and date range"""
     start_date_str = start_date.strftime("%Y-%m-%d")
@@ -2459,10 +2082,11 @@ def display_connection_details():
     st.markdown('</div>', unsafe_allow_html=True)
 
 def main():
-    st.markdown('<h1 class="dashboard-title">📊 Ecommerce Dashboard</h1>', unsafe_allow_html=True)
-    
-    # Initialize session state with persistence
+    # Initialize session state first
     initialize_session_state()
+    
+    # Then proceed with the rest of your app
+    st.markdown('<h1 class="dashboard-title">📊 Ecommerce Dashboard</h1>', unsafe_allow_html=True)
     
     # Initialize date_ranges with a default value
     date_ranges = []
@@ -3270,7 +2894,7 @@ def main():
                                     min_value=datetime(2025, 5, 1),
                                     key="ads_end_date")
 
-        # Connection buttons
+        # Automatic connection if tokens exist
         if not st.session_state.manager_connected:
             if st.button("🔌 Connect Manager Account (MCC)"):
                 connect_manager_account()
@@ -3283,7 +2907,7 @@ def main():
         elif st.session_state.client_connected:
             st.success(f"✅ {google_ads_accounts[st.session_state.selected_account]} connected (persistent session)")
 
-        # Performance data section
+        # Data fetching and display
         if st.session_state.client_connected:
             if st.button("📊 Fetch Google Ads Data", key="fetch_data_btn"):
                 if fetch_ads_data(start_date, end_date):
@@ -3292,185 +2916,9 @@ def main():
                     display_campaign_performance()
                     display_keywords_performance()
         
-        # Ad creation section
-        st.markdown("---")
-        st.subheader("📢 Create New Ad")
-
-        if st.session_state.client_connected:
-            # Step 1: Select Campaign
-            with st.spinner("Loading campaigns..."):
-                campaigns = st.session_state.client_manager.get_campaigns(st.session_state.selected_account)
-            
-            if not campaigns.empty and 'name' in campaigns.columns:
-                # Create a mapping of campaign names to IDs for the selectbox
-                campaign_options = {row['id']: f"{row['name']} ({row['id']})" 
-                                    for _, row in campaigns.iterrows()}
-                
-                selected_campaign = st.selectbox(
-                    "Select Campaign",
-                    options=list(campaign_options.keys()),
-                    format_func=lambda x: campaign_options[x]
-                )
-                
-                # Get the campaign name for display purposes
-                campaign_name = campaigns[campaigns['id'] == selected_campaign]['name'].values[0]
-                
-                # Step 2: Select Ad Group
-                with st.spinner(f"Loading ad groups for {campaign_name}..."):
-                    ad_groups = st.session_state.client_manager.get_ad_groups(
-                        st.session_state.selected_account, 
-                        selected_campaign
-                    )
-                
-                if not ad_groups.empty and 'name' in ad_groups.columns:
-                    # Create a mapping of ad group names to IDs
-                    ad_group_options = {row['id']: f"{row['name']} ({row['id']})" 
-                                        for _, row in ad_groups.iterrows()}
-                    
-                    selected_ad_group = st.selectbox(
-                        "Select Ad Group",
-                        options=list(ad_group_options.keys()),
-                        format_func=lambda x: ad_group_options[x]
-                    )
-                    
-                    # Step 3: Ad Creation Form
-                    with st.form("create_ad_form"):
-                        st.markdown("### 📝 Ad Details")
-                        
-                        # Headlines (minimum 3, maximum 15)
-                        st.markdown("**Headlines** (3-15 headlines, each 30 chars max)")
-                        headlines = []
-                        for i in range(1, 16):
-                            headline = st.text_input(f"Headline {i}", max_chars=30, 
-                                                help=f"Short, attention-grabbing text for your ad (max 30 chars)")
-                            if headline:
-                                headlines.append(headline)
-                        
-                        # Descriptions (minimum 2, maximum 4)
-                        st.markdown("**Descriptions** (2-4 descriptions, each 90 chars max)")
-                        descriptions = []
-                        for i in range(1, 5):
-                            description = st.text_input(f"Description {i}", max_chars=90,
-                                                    help=f"Longer text to describe your offer (max 90 chars)")
-                            if description:
-                                descriptions.append(description)
-                        
-                        # Final URL
-                        final_url = st.text_input("Final URL", 
-                                                value="https://www.example.com/book",
-                                                help="The landing page URL where users will be sent")
-                        
-                        # Path fields (optional)
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            path1 = st.text_input("Path 1 (optional)", max_chars=15,
-                                                help="First part of the display URL (max 15 chars)")
-                        with col2:
-                            path2 = st.text_input("Path 2 (optional)", max_chars=15,
-                                                help="Second part of the display URL (max 15 chars)")
-                        
-                        # Validation
-                        if len(headlines) < 3:
-                            st.warning("⚠️ You need at least 3 headlines")
-                        if len(descriptions) < 2:
-                            st.warning("⚠️ You need at least 2 descriptions")
-                        if not final_url.startswith("http"):
-                            st.warning("⚠️ Please enter a valid URL starting with http:// or https://")
-                        
-                        # Submit button
-                        submitted = st.form_submit_button("🚀 Create Responsive Search Ad")
-                        
-                        if submitted:
-                            if len(headlines) >= 3 and len(descriptions) >= 2 and final_url.startswith("http"):
-                                with st.spinner("Creating ad..."):
-                                    try:
-                                        result = st.session_state.client_manager.create_responsive_search_ad(
-                                            customer_id=st.session_state.selected_account,
-                                            ad_group_id=selected_ad_group,
-                                            headlines=headlines,
-                                            descriptions=descriptions,
-                                            final_urls=final_url,
-                                            path1=path1,
-                                            path2=path2
-                                        )
-                                        
-                                        if result:
-                                            st.success("✅ Ad created successfully!")
-                                            st.json({
-                                                "Ad Group ID": selected_ad_group,
-                                                "Headlines": headlines,
-                                                "Descriptions": descriptions,
-                                                "Final URL": final_url,
-                                                "Path 1": path1,
-                                                "Path 2": path2,
-                                                "Resource Name": result
-                                            })
-                                        else:
-                                            st.error("❌ Failed to create ad")
-                                    except Exception as e:
-                                        st.error(f"Ad creation failed: {str(e)}")
-                                        st.error(traceback.format_exc())
-                else:
-                    st.warning("⚠️ No active ad groups found in the selected campaign or data is incomplete")
-            else:
-                st.warning("⚠️ No active campaigns found in this account or data is incomplete")
-        else:
-            st.warning("⚠️ Please connect to a client account to create ads")
-        # Add this to your Google Ads tab after the existing ad creation form
-        st.markdown("---")
-        st.subheader("🔄 Clone Campaign for New Date")
-
-        if st.session_state.client_connected:
-            with st.form("clone_campaign_form"):
-                st.markdown("### Select Campaign to Clone")
-                
-                # Get campaigns for selection
-                with st.spinner("Loading campaigns..."):
-                    campaigns = st.session_state.client_manager.get_campaigns(st.session_state.selected_account)
-                
-                if not campaigns.empty:
-                    # Create mapping for selectbox
-                    campaign_options = {row['id']: f"{row['name']} ({row['id']})" 
-                                    for _, row in campaigns.iterrows()}
-                    
-                    selected_campaign = st.selectbox(
-                        "Select Campaign to Clone",
-                        options=list(campaign_options.keys()),
-                        format_func=lambda x: campaign_options[x],
-                        key="clone_campaign_select"
-                    )
-                    
-                    # Date input for new campaign
-                    new_date = st.text_input(
-                        "New Date for Campaign Name",
-                        value=datetime.now().strftime("%d %b %Y"),
-                        help="This will be appended to the campaign name in parentheses"
-                    )
-                    
-                    submitted = st.form_submit_button("🚀 Clone Campaign")
-                    
-                    if submitted:
-                        with st.spinner(f"Cloning campaign {selected_campaign}..."):
-                            new_campaign_id = st.session_state.client_manager.clone_campaign_for_new_date(
-                                customer_id=st.session_state.selected_account,
-                                base_campaign_id=selected_campaign,
-                                new_date=new_date
-                            )
-                            
-                            if new_campaign_id:
-                                st.success(f"✅ Successfully created new campaign with ID: {new_campaign_id}")
-                                st.balloons()
-                            else:
-                                st.error("❌ Failed to clone campaign")
-                else:
-                    st.warning("No campaigns found in this account")
-        else:
-            st.warning("Please connect to a client account to clone campaigns")
-
-        # Display connection details at the bottom
+        # Always show connection details
         display_connection_details()
         st.markdown('</div>', unsafe_allow_html=True)  # Close main card
 
-        
 if __name__ == "__main__":
     main()
