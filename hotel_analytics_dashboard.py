@@ -646,12 +646,12 @@ class GoogleAdsManager:
                 if not self.initialize_client():
                     st.error("Google Ads client not initialized")
                     return pd.DataFrame()
-
+    
             # Verify we have a valid access token
             if not hasattr(self.config, 'access_token') or not self.config.access_token:
                 st.error("No valid access token available")
                 return pd.DataFrame()
-
+    
             client = self.client
             ga_service = client.get_service("GoogleAdsService")
             
@@ -683,7 +683,7 @@ class GoogleAdsManager:
                     ORDER BY segments.date
                 """
             
-            # Execute the query - REMOVED PAGE SIZE SETTING
+            # Execute the query
             search_request = client.get_type("SearchGoogleAdsRequest")
             search_request.customer_id = customer_id
             search_request.query = query
@@ -704,8 +704,12 @@ class GoogleAdsManager:
                             "impressions": row.metrics.impressions
                         })
                     else:
+                        # Convert date string to datetime object
+                        date_str = row.segments.date
+                        date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+                        
                         data.append({
-                            "date": row.segments.date,
+                            "date": date_obj,  # Store as date object
                             "campaign_id": row.campaign.id,
                             "campaign_name": row.campaign.name,
                             "impressions": row.metrics.impressions,
@@ -727,7 +731,7 @@ class GoogleAdsManager:
                 
             df = pd.DataFrame(data)
             
-            if not test_mode:
+            if not test_mode and 'date' in df.columns:
                 # Convert date to datetime and sort
                 df['date'] = pd.to_datetime(df['date'])
                 df = df.sort_values('date')
@@ -757,7 +761,6 @@ class GoogleAdsManager:
             st.error(f"Failed to fetch Google Ads data: {str(e)}")
             st.error(traceback.format_exc())
             return pd.DataFrame()
-
     def fetch_keywords_data(self, customer_id, start_date, end_date, campaign_ids=None):
         """Fetch keywords data for specified campaigns and date range"""
         try:
@@ -1719,141 +1722,87 @@ def display_ads_time_series(start_date, end_date):
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("📅 Performance Over Time (All Campaigns)")
     
-    daily_data = st.session_state.ads_data.groupby('date').agg({
-        'cost': 'sum',
-        'clicks': 'sum',
-        'impressions': 'sum',
-        'conversions': 'sum',
-        'conversion_value': 'sum'
-    }).reset_index()
+    if st.session_state.ads_data.empty:
+        st.warning("No Google Ads data available")
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
     
-    fig = go.Figure()
+    if 'date' not in st.session_state.ads_data.columns:
+        st.error("Date column not found in Google Ads data")
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
     
-    # Primary axis (left) - Monetary metrics
-    fig.add_trace(go.Scatter(
-        x=daily_data['date'], y=daily_data['cost'],
-        name='Cost (£)', line=dict(color='#4285F4'),
-        hovertemplate='%{x|%b %d}<br>Cost: £%{y:,.2f}<extra></extra>'
-    ))
-    fig.add_trace(go.Scatter(
-        x=daily_data['date'], y=daily_data['conversion_value'],
-        name='Conversion Value (£)', line=dict(color='#34A853'),
-        hovertemplate='%{x|%b %d}<br>Value: £%{y:,.2f}<extra></extra>'
-    ))
-    
-    # Secondary axis (right) - Count metrics
-    fig.add_trace(go.Bar(
-        x=daily_data['date'], y=daily_data['impressions'],
-        name='Impressions', marker_color='#FBBC05',
-        opacity=0.3, yaxis='y2',
-        hovertemplate='%{x|%b %d}<br>Impressions: %{y:,}<extra></extra>'
-    ))
-    fig.add_trace(go.Bar(
-        x=daily_data['date'], y=daily_data['clicks'],
-        name='Clicks', marker_color='#EA4335',
-        opacity=0.5, yaxis='y2',
-        hovertemplate='%{x|%b %d}<br>Clicks: %{y:,}<extra></extra>'
-    ))
-    
-    fig.update_layout(
-        title=f'Performance from {start_date.strftime("%b %d")} to {end_date.strftime("%b %d")}',
-        xaxis=dict(title='Date', showgrid=False),
-        yaxis=dict(
-            title='Cost/Value (£)',
-            side='left',
-            showgrid=False,
-            tickprefix='£'
-        ),
-        yaxis2=dict(
-            title='Impressions/Clicks',
-            side='right',
-            overlaying='y',
-            showgrid=False
-        ),
-        legend=dict(
-            orientation='h',
-            yanchor='bottom',
-            y=1.02,
-            xanchor='right',
-            x=1
-        ),
-        hovermode='x unified',
-        plot_bgcolor='rgba(0,0,0,0)',
-        height=500,
-        margin=dict(l=50, r=50, t=80, b=50)
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-def display_campaign_performance():
-    """Display campaign performance table"""
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("📋 All Campaigns Performance")
-    
-    # Aggregate campaign data
-    campaign_data = st.session_state.ads_data.groupby(['campaign_id', 'campaign_name']).agg({
-        'cost': 'sum',
-        'impressions': 'sum',
-        'clicks': 'sum',
-        'conversions': 'sum',
-        'conversion_value': 'sum'
-    }).reset_index()
-    
-    # Calculate metrics
-    campaign_data['ctr'] = (campaign_data['clicks'] / campaign_data['impressions']) * 100
-    campaign_data['cpc'] = campaign_data['cost'] / campaign_data['clicks']
-    campaign_data['roas'] = campaign_data['conversion_value'] / campaign_data['cost']
-    campaign_data['cost_per_conversion'] = campaign_data['cost'] / campaign_data['conversions']
-    
-    # Replace infinities and NaN with 0
-    campaign_data = campaign_data.replace([np.inf, -np.inf], np.nan).fillna(0)
-    
-    # Display the table
-    st.dataframe(
-        campaign_data.sort_values('cost', ascending=False)
-        .rename(columns={
-            'campaign_id': 'Campaign ID',
-            'campaign_name': 'Campaign Name',
-            'cost': 'Cost (£)',
-            'impressions': 'Impressions',
-            'clicks': 'Clicks',
-            'conversions': 'Conversions',
-            'conversion_value': 'Value (£)',
-            'ctr': 'CTR (%)',
-            'cpc': 'CPC (£)',
-            'roas': 'ROAS',
-            'cost_per_conversion': 'CPA (£)'
-        })
-        .style.format({
-            'Cost (£)': '£{:,.2f}',
-            'Impressions': '{:,.0f}',
-            'Clicks': '{:,.0f}',
-            'Conversions': '{:,.0f}',
-            'Value (£)': '£{:,.2f}',
-            'CTR (%)': '{:.1f}%',
-            'CPC (£)': '£{:,.2f}',
-            'ROAS': '{:.2f}',
-            'CPA (£)': '£{:,.2f}'
-        })
-        .background_gradient(
-            cmap='Blues',
-            subset=['Cost (£)', 'Impressions']
+    try:
+        daily_data = st.session_state.ads_data.groupby('date').agg({
+            'cost': 'sum',
+            'clicks': 'sum',
+            'impressions': 'sum',
+            'conversions': 'sum',
+            'conversion_value': 'sum'
+        }).reset_index()
+        
+        fig = go.Figure()
+        
+        # Primary axis (left) - Monetary metrics
+        fig.add_trace(go.Scatter(
+            x=daily_data['date'], y=daily_data['cost'],
+            name='Cost (£)', line=dict(color='#4285F4'),
+            hovertemplate='%{x|%b %d}<br>Cost: £%{y:,.2f}<extra></extra>'
+        ))
+        fig.add_trace(go.Scatter(
+            x=daily_data['date'], y=daily_data['conversion_value'],
+            name='Conversion Value (£)', line=dict(color='#34A853'),
+            hovertemplate='%{x|%b %d}<br>Value: £%{y:,.2f}<extra></extra>'
+        ))
+        
+        # Secondary axis (right) - Count metrics
+        fig.add_trace(go.Bar(
+            x=daily_data['date'], y=daily_data['impressions'],
+            name='Impressions', marker_color='#FBBC05',
+            opacity=0.3, yaxis='y2',
+            hovertemplate='%{x|%b %d}<br>Impressions: %{y:,}<extra></extra>'
+        ))
+        fig.add_trace(go.Bar(
+            x=daily_data['date'], y=daily_data['clicks'],
+            name='Clicks', marker_color='#EA4335',
+            opacity=0.5, yaxis='y2',
+            hovertemplate='%{x|%b %d}<br>Clicks: %{y:,}<extra></extra>'
+        ))
+        
+        fig.update_layout(
+            title=f'Performance from {start_date.strftime("%b %d")} to {end_date.strftime("%b %d")}',
+            xaxis=dict(title='Date', showgrid=False),
+            yaxis=dict(
+                title='Cost/Value (£)',
+                side='left',
+                showgrid=False,
+                tickprefix='£'
+            ),
+            yaxis2=dict(
+                title='Impressions/Clicks',
+                side='right',
+                overlaying='y',
+                showgrid=False
+            ),
+            legend=dict(
+                orientation='h',
+                yanchor='bottom',
+                y=1.02,
+                xanchor='right',
+                x=1
+            ),
+            hovermode='x unified',
+            plot_bgcolor='rgba(0,0,0,0)',
+            height=500,
+            margin=dict(l=50, r=50, t=80, b=50)
         )
-        .background_gradient(
-            cmap='Greens',
-            subset=['Conversions', 'Value (£)', 'ROAS']
-        )
-        .background_gradient(
-            cmap='Reds',
-            subset=['CPC (£)', 'CPA (£)'],
-            vmin=0, vmax=5
-        ),
-        height=600,
-        use_container_width=True
-    )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+    except Exception as e:
+        st.error(f"Error creating time series chart: {str(e)}")
+    
     st.markdown('</div>', unsafe_allow_html=True)
-
 def display_keywords_performance():
     """Display keywords performance analysis"""
     if st.session_state.keywords_data.empty:
