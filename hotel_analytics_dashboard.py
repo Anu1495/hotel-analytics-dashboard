@@ -40,6 +40,10 @@ import logging
 from logging.handlers import RotatingFileHandler
 import traceback
 import os
+try:
+    import matplotlib
+except ImportError:
+    pass  # We'll handle this gracefully in the functions that need it
 import calendar
 from dateutil.relativedelta import relativedelta
 from google.oauth2.credentials import Credentials
@@ -2177,7 +2181,7 @@ def display_campaign_performance():
         'conversion_value': 'sum'
     }).reset_index()
     
-    # Rest of the function remains the same...    # Calculate metrics
+    # Calculate metrics
     campaign_data['ctr'] = (campaign_data['clicks'] / campaign_data['impressions']) * 100
     campaign_data['cpc'] = campaign_data['cost'] / campaign_data['clicks']
     campaign_data['roas'] = campaign_data['conversion_value'] / campaign_data['cost']
@@ -2186,51 +2190,86 @@ def display_campaign_performance():
     # Replace infinities and NaN with 0
     campaign_data = campaign_data.replace([np.inf, -np.inf], np.nan).fillna(0)
     
+    # Format the DataFrame without background_gradient if matplotlib is not available
+    try:
+        import matplotlib
+        styled_df = (
+            campaign_data.sort_values('cost', ascending=False)
+            .rename(columns={
+                'campaign_id': 'Campaign ID',
+                'campaign_name': 'Campaign Name',
+                'cost': 'Cost (£)',
+                'impressions': 'Impressions',
+                'clicks': 'Clicks',
+                'conversions': 'Conversions',
+                'conversion_value': 'Value (£)',
+                'ctr': 'CTR (%)',
+                'cpc': 'CPC (£)',
+                'roas': 'ROAS',
+                'cost_per_conversion': 'CPA (£)'
+            })
+            .style.format({
+                'Cost (£)': '£{:,.2f}',
+                'Impressions': '{:,.0f}',
+                'Clicks': '{:,.0f}',
+                'Conversions': '{:,.0f}',
+                'Value (£)': '£{:,.2f}',
+                'CTR (%)': '{:.1f}%',
+                'CPC (£)': '£{:,.2f}',
+                'ROAS': '{:.2f}',
+                'CPA (£)': '£{:,.2f}'
+            })
+            .background_gradient(
+                cmap='Blues',
+                subset=['Cost (£)', 'Impressions']
+            )
+            .background_gradient(
+                cmap='Greens',
+                subset=['Conversions', 'Value (£)', 'ROAS']
+            )
+            .background_gradient(
+                cmap='Reds',
+                subset=['CPC (£)', 'CPA (£)'],
+                vmin=0, vmax=5
+            )
+        )
+    except ImportError:
+        # Fallback without background gradients if matplotlib is not available
+        styled_df = (
+            campaign_data.sort_values('cost', ascending=False)
+            .rename(columns={
+                'campaign_id': 'Campaign ID',
+                'campaign_name': 'Campaign Name',
+                'cost': 'Cost (£)',
+                'impressions': 'Impressions',
+                'clicks': 'Clicks',
+                'conversions': 'Conversions',
+                'conversion_value': 'Value (£)',
+                'ctr': 'CTR (%)',
+                'cpc': 'CPC (£)',
+                'roas': 'ROAS',
+                'cost_per_conversion': 'CPA (£)'
+            })
+            .style.format({
+                'Cost (£)': '£{:,.2f}',
+                'Impressions': '{:,.0f}',
+                'Clicks': '{:,.0f}',
+                'Conversions': '{:,.0f}',
+                'Value (£)': '£{:,.2f}',
+                'CTR (%)': '{:.1f}%',
+                'CPC (£)': '£{:,.2f}',
+                'ROAS': '{:.2f}',
+                'CPA (£)': '£{:,.2f}'
+            })
+        )
+    
     # Display the table
     st.dataframe(
-        campaign_data.sort_values('cost', ascending=False)
-        .rename(columns={
-            'campaign_id': 'Campaign ID',
-            'campaign_name': 'Campaign Name',
-            'cost': 'Cost (£)',
-            'impressions': 'Impressions',
-            'clicks': 'Clicks',
-            'conversions': 'Conversions',
-            'conversion_value': 'Value (£)',
-            'ctr': 'CTR (%)',
-            'cpc': 'CPC (£)',
-            'roas': 'ROAS',
-            'cost_per_conversion': 'CPA (£)'
-        })
-        .style.format({
-            'Cost (£)': '£{:,.2f}',
-            'Impressions': '{:,.0f}',
-            'Clicks': '{:,.0f}',
-            'Conversions': '{:,.0f}',
-            'Value (£)': '£{:,.2f}',
-            'CTR (%)': '{:.1f}%',
-            'CPC (£)': '£{:,.2f}',
-            'ROAS': '{:.2f}',
-            'CPA (£)': '£{:,.2f}'
-        })
-        .background_gradient(
-            cmap='Blues',
-            subset=['Cost (£)', 'Impressions']
-        )
-        .background_gradient(
-            cmap='Greens',
-            subset=['Conversions', 'Value (£)', 'ROAS']
-        )
-        .background_gradient(
-            cmap='Reds',
-            subset=['CPC (£)', 'CPA (£)'],
-            vmin=0, vmax=5
-        ),
+        styled_df,
         height=600,
         use_container_width=True
     )
     st.markdown('</div>', unsafe_allow_html=True)
-
 def display_keywords_performance():
     """Display keywords performance analysis"""
     if st.session_state.keywords_data.empty:
