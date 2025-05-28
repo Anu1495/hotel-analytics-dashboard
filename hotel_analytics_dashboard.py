@@ -58,16 +58,6 @@ st.markdown("""
         background-color: #f8f9fa;
     }
     
-    /* Card styling */
-    .card {
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        background-color: white;
-        margin-bottom: 20px;
-        border: 1px solid #e0e0e0;
-    }
-    
     /* KPI styling */
     .kpi-card {
         padding: 15px;
@@ -638,7 +628,118 @@ class GoogleAdsManager:
             st.error(traceback.format_exc())
             return False
     
-
+    def get_ad_groups(self, customer_id, campaign_id):
+        """Fetch ad groups for a specific campaign"""
+        try:
+            if not self.client:
+                if not self.initialize_client():
+                    st.error("Failed to initialize Google Ads client")
+                    return pd.DataFrame(columns=['id', 'name', 'status'])
+                
+            ga_service = self.client.get_service("GoogleAdsService")
+            
+            query = f"""
+                SELECT
+                    ad_group.id,
+                    ad_group.name,
+                    ad_group.status
+                FROM ad_group
+                WHERE campaign.id = {campaign_id}
+                AND campaign.status = ENABLED
+                AND ad_group.status = ENABLED
+                ORDER BY ad_group.name
+            """
+        
+        # Rest of the method remains the same...
+            
+            search_request = self.client.get_type("SearchGoogleAdsRequest")
+            search_request.customer_id = customer_id
+            search_request.query = query
+            
+            response = ga_service.search(request=search_request)
+            
+            ad_groups = []
+            for row in response:
+                ad_groups.append({
+                    'id': str(row.ad_group.id),
+                    'name': row.ad_group.name,
+                    'status': str(row.ad_group.status)
+                })
+            
+            return pd.DataFrame(ad_groups)
+        except Exception as e:
+            st.error(f"Failed to fetch ad groups: {str(e)}")
+            return pd.DataFrame(columns=['id', 'name', 'status'])
+        # Add this to your GoogleAdsManager class
+    def clone_campaign_for_new_date(self, customer_id, base_campaign_id, new_date):
+        """Public method to clone a campaign for a new date"""
+        if not self.client:
+            if not self.initialize_client():
+                st.error("Failed to initialize Google Ads client")
+                return None
+        
+        return create_similar_campaign(self.client, customer_id, base_campaign_id, new_date)
+    def create_responsive_search_ad(self, customer_id, ad_group_id, headlines, descriptions, final_urls, path1=None, path2=None):
+        """Create a responsive search ad"""
+        try:
+            client = self.client
+            ad_group_ad_service = client.get_service("AdGroupAdService")
+            ad_group_service = client.get_service("AdGroupService")
+            
+            # Create the ad group ad
+            ad_group_ad_operation = client.get_type("AdGroupAdOperation")
+            ad_group_ad = ad_group_ad_operation.create
+            
+            # Set the ad group
+            ad_group_ad.ad_group = ad_group_service.ad_group_path(
+                customer_id, ad_group_id
+            )
+            
+            # Set the ad type to responsive search ad
+            ad_group_ad.ad.final_urls.extend([final_urls])
+            
+            # Set the ad rotation mode
+            ad_group_ad.ad.ad_rotation_mode = client.enums.AdRotationModeEnum.OPTIMIZE
+            
+            # Set the responsive search ad info
+            responsive_search_ad_info = ad_group_ad.ad.responsive_search_ad
+            
+            # Add headlines
+            for i, headline in enumerate(headlines[:15]):  # Max 15 headlines
+                ad_text_asset = client.get_type("AdTextAsset")
+                ad_text_asset.text = headline
+                if i == 0:
+                    ad_text_asset.pinned_field = client.enums.ServedAssetFieldTypeEnum.HEADLINE_1
+                elif i == 1:
+                    ad_text_asset.pinned_field = client.enums.ServedAssetFieldTypeEnum.HEADLINE_2
+                responsive_search_ad_info.headlines.append(ad_text_asset)
+            
+            # Add descriptions
+            for i, description in enumerate(descriptions[:4]):  # Max 4 descriptions
+                ad_text_asset = client.get_type("AdTextAsset")
+                ad_text_asset.text = description
+                if i == 0:
+                    ad_text_asset.pinned_field = client.enums.ServedAssetFieldTypeEnum.DESCRIPTION_1
+                elif i == 1:
+                    ad_text_asset.pinned_field = client.enums.ServedAssetFieldTypeEnum.DESCRIPTION_2
+                responsive_search_ad_info.descriptions.append(ad_text_asset)
+            
+            # Set path fields if provided
+            if path1:
+                ad_group_ad.ad.final_url_suffix = f"lp={path1}"
+            if path2:
+                ad_group_ad.ad.final_url_suffix = f"{ad_group_ad.ad.final_url_suffix}&sub={path2}" if hasattr(ad_group_ad.ad, 'final_url_suffix') else f"sub={path2}"
+            
+            # Create the ad
+            response = ad_group_ad_service.mutate_ad_group_ads(
+                customer_id=customer_id,
+                operations=[ad_group_ad_operation]
+            )
+            
+            return response.results[0].resource_name
+        except Exception as e:
+            st.error(f"Failed to create responsive search ad: {str(e)}")
+            return None
     def fetch_google_ads_data(self, customer_id, start_date, end_date, test_mode=False):
         """Fetch Google Ads data for the specified customer and date range"""
         try:
@@ -664,6 +765,7 @@ class GoogleAdsManager:
                         metrics.impressions
                     FROM campaign
                     WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'
+                    AND campaign.status = ENABLED
                     LIMIT 5
                 """
             else:
@@ -680,6 +782,7 @@ class GoogleAdsManager:
                         segments.date
                     FROM campaign
                     WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'
+                    AND campaign.status = ENABLED
                     ORDER BY segments.date
                 """
             
@@ -761,6 +864,46 @@ class GoogleAdsManager:
             st.error(f"Failed to fetch Google Ads data: {str(e)}")
             st.error(traceback.format_exc())
             return pd.DataFrame()
+    def get_campaigns(self, customer_id):
+        """Fetch list of campaigns for dropdown selection"""
+        try:
+            if not self.client:
+                if not self.initialize_client():
+                    st.error("Failed to initialize Google Ads client")
+                    return pd.DataFrame(columns=['id', 'name', 'status'])  # Return empty DataFrame with expected columns
+                
+            ga_service = self.client.get_service("GoogleAdsService")
+            
+            query = """
+                SELECT
+                    campaign.id,
+                    campaign.name,
+                    campaign.status
+                FROM campaign
+                WHERE campaign.status = ENABLED
+                ORDER BY campaign.name
+            """
+        
+        # Rest of the method remains the same...
+            
+            search_request = self.client.get_type("SearchGoogleAdsRequest")
+            search_request.customer_id = customer_id
+            search_request.query = query
+            
+            response = ga_service.search(request=search_request)
+            
+            campaigns = []
+            for row in response:
+                campaigns.append({
+                    'id': str(row.campaign.id),  # Ensure ID is string
+                    'name': row.campaign.name,
+                    'status': str(row.campaign.status)
+                })
+            
+            return pd.DataFrame(campaigns)
+        except Exception as e:
+            st.error(f"Failed to fetch campaigns: {str(e)}")
+            return pd.DataFrame(columns=['id', 'name', 'status'])  # Return empty DataFrame with expected columns
     def fetch_keywords_data(self, customer_id, start_date, end_date, campaign_ids=None):
         """Fetch keywords data for specified campaigns and date range"""
         try:
@@ -789,6 +932,7 @@ class GoogleAdsManager:
                     metrics.average_cpc
                 FROM keyword_view
                 WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'
+                AND campaign.status = ENABLED
             """
             
             # Add campaign filter if specified
@@ -1326,6 +1470,234 @@ def create_ga4_audience(property_id, audience_name, checkin_date):
                "2. Google Analytics Admin API is enabled\n"
                f"3. Correct patterns: Include: {include_pattern}, Exclude: {exclude_pattern}")
         return None
+def fetch_campaign_details(client, customer_id, campaign_id):
+    """Fetch all details of a specific campaign including its structure"""
+    try:
+        ga_service = client.get_service("GoogleAdsService")
+        
+        query = f"""
+            SELECT
+                campaign.id,
+                campaign.name,
+                campaign.status,
+                campaign.advertising_channel_type,
+                campaign.advertising_channel_sub_type,
+                campaign.network_settings.target_content_network,
+                campaign.network_settings.target_google_search,
+                campaign.network_settings.target_search_network,
+                campaign.network_settings.target_partner_search_network,
+                campaign.bidding_strategy_type,
+                campaign.manual_cpc.enhanced_cpc_enabled,
+                campaign.start_date,
+                campaign.end_date,
+                campaign.campaign_budget,
+                campaign_budget.amount_micros,
+                campaign_budget.explicitly_shared,
+                campaign_budget.period
+            FROM campaign
+            WHERE campaign.id = {campaign_id}
+        """
+        
+        search_request = client.get_type("SearchGoogleAdsRequest")
+        search_request.customer_id = customer_id
+        search_request.query = query
+        
+        response = ga_service.search(request=search_request)
+        
+        campaign_details = {}
+        for row in response:
+            campaign_details = {
+                'id': row.campaign.id,
+                'name': row.campaign.name,
+                'status': str(row.campaign.status),
+                'channel_type': str(row.campaign.advertising_channel_type),
+                'channel_sub_type': str(row.campaign.advertising_channel_sub_type),
+                'target_content_network': row.campaign.network_settings.target_content_network,
+                'target_google_search': row.campaign.network_settings.target_google_search,
+                'target_search_network': row.campaign.network_settings.target_search_network,
+                'target_partner_search_network': row.campaign.network_settings.target_partner_search_network,
+                'bidding_strategy_type': str(row.campaign.bidding_strategy_type),
+                'enhanced_cpc_enabled': row.campaign.manual_cpc.enhanced_cpc_enabled,
+                'start_date': row.campaign.start_date,
+                'end_date': row.campaign.end_date,
+                'budget_amount': row.campaign_budget.amount_micros / 1000000,
+                'budget_explicitly_shared': row.campaign_budget.explicitly_shared,
+                'budget_period': str(row.campaign_budget.period),
+                'budget_resource_name': row.campaign.campaign_budget
+            }
+        
+        return campaign_details
+    
+    except Exception as e:
+        st.error(f"Failed to fetch campaign details: {str(e)}")
+        return None
+
+def fetch_ad_group_details(client, customer_id, campaign_id):
+    """Fetch all ad groups and their details for a campaign"""
+    try:
+        ga_service = client.get_service("GoogleAdsService")
+        
+        query = f"""
+            SELECT
+                ad_group.id,
+                ad_group.name,
+                ad_group.status,
+                ad_group.type,
+                ad_group.cpc_bid_micros,
+                ad_group.target_cpa_micros,
+                ad_group.target_roas,
+                ad_group.target_roas_source,
+                ad_group.cpv_bid_micros,
+                ad_group.cpm_bid_micros,
+                ad_group.percent_cpc_bid_micros,
+                ad_group.effective_target_cpa_micros,
+                ad_group.effective_target_cpa_source,
+                ad_group.effective_target_roas,
+                ad_group.effective_target_roas_source
+            FROM ad_group
+            WHERE campaign.id = {campaign_id}
+        """
+        
+        search_request = client.get_type("SearchGoogleAdsRequest")
+        search_request.customer_id = customer_id
+        search_request.query = query
+        
+        response = ga_service.search(request=search_request)
+        
+        ad_groups = []
+        for row in response:
+            ad_groups.append({
+                'id': row.ad_group.id,
+                'name': row.ad_group.name,
+                'status': str(row.ad_group.status),
+                'type': str(row.ad_group.type),
+                'cpc_bid_micros': row.ad_group.cpc_bid_micros,
+                'target_cpa_micros': row.ad_group.target_cpa_micros,
+                'target_roas': row.ad_group.target_roas,
+                'target_roas_source': str(row.ad_group.target_roas_source),
+                'cpv_bid_micros': row.ad_group.cpv_bid_micros,
+                'cpm_bid_micros': row.ad_group.cpm_bid_micros,
+                'percent_cpc_bid_micros': row.ad_group.percent_cpc_bid_micros,
+                'effective_target_cpa_micros': row.ad_group.effective_target_cpa_micros,
+                'effective_target_cpa_source': str(row.ad_group.effective_target_cpa_source),
+                'effective_target_roas': row.ad_group.effective_target_roas,
+                'effective_target_roas_source': str(row.ad_group.effective_target_roas_source)
+            })
+        
+        return ad_groups
+    
+    except Exception as e:
+        st.error(f"Failed to fetch ad group details: {str(e)}")
+        return []
+
+def fetch_ads_details(client, customer_id, ad_group_id):
+    """Fetch all ads in an ad group"""
+    try:
+        ga_service = client.get_service("GoogleAdsService")
+        
+        query = f"""
+            SELECT
+                ad_group_ad.ad.id,
+                ad_group_ad.ad.type,
+                ad_group_ad.ad.responsive_search_ad.headlines,
+                ad_group_ad.ad.responsive_search_ad.descriptions,
+                ad_group_ad.ad.responsive_search_ad.path1,
+                ad_group_ad.ad.responsive_search_ad.path2,
+                ad_group_ad.ad.final_urls
+            FROM ad_group_ad
+            WHERE ad_group.id = {ad_group_id}
+        """
+        
+        search_request = client.get_type("SearchGoogleAdsRequest")
+        search_request.customer_id = customer_id
+        search_request.query = query
+        
+        response = ga_service.search(request=search_request)
+        
+        ads = []
+        for row in response:
+            if row.ad_group_ad.ad.type == client.enums.AdTypeEnum.RESPONSIVE_SEARCH_AD:
+                rsa = row.ad_group_ad.ad.responsive_search_ad
+                ads.append({
+                    'id': row.ad_group_ad.ad.id,
+                    'type': 'RESPONSIVE_SEARCH_AD',
+                    'headlines': [h.text for h in rsa.headlines],
+                    'descriptions': [d.text for d in rsa.descriptions],
+                    'path1': rsa.path1,
+                    'path2': rsa.path2,
+                    'final_urls': list(row.ad_group_ad.ad.final_urls)
+                })
+        
+        return ads
+    
+    except Exception as e:
+        st.error(f"Failed to fetch ad details: {str(e)}")
+        return []
+
+def create_similar_campaign(client, customer_id, base_campaign_id, new_date):
+    """Create a new campaign similar to an existing one but with a new date"""
+    try:
+        # Fetch base campaign details
+        campaign_details = fetch_campaign_details(client, customer_id, base_campaign_id)
+        if not campaign_details:
+            st.error("Could not fetch base campaign details")
+            return None
+        
+        # Generate new campaign name with date
+        new_campaign_name = f"{campaign_details['name'].rsplit('(', 1)[0].strip()} ({new_date})"
+        
+        # Get services
+        campaign_service = client.get_service("CampaignService")
+        campaign_budget_service = client.get_service("CampaignBudgetService")
+        
+        # Create budget operation
+        budget_operation = client.get_type("CampaignBudgetOperation")
+        budget = budget_operation.create
+        budget.name = f"{new_campaign_name} Budget"
+        budget.amount_micros = int(campaign_details['budget_amount'] * 1000000)
+        budget.delivery_method = client.enums.BudgetDeliveryMethodEnum.STANDARD
+        budget.explicitly_shared = campaign_details['budget_explicitly_shared']
+        
+        # Add budget operation
+        budget_response = campaign_budget_service.mutate_campaign_budgets(
+            customer_id=customer_id,
+            operations=[budget_operation]
+        )
+        budget_id = budget_response.results[0].resource_name.split('/')[-1]
+        
+        # Create campaign operation
+        campaign_operation = client.get_type("CampaignOperation")
+        campaign = campaign_operation.create
+        campaign.name = new_campaign_name
+        campaign.advertising_channel_type = client.enums.AdvertisingChannelTypeEnum.SEARCH
+        campaign.status = client.enums.CampaignStatusEnum.PAUSED  # Start paused for review
+        campaign.manual_cpc.enhanced_cpc_enabled = campaign_details['enhanced_cpc_enabled']
+        campaign.campaign_budget = campaign_budget_service.campaign_budget_path(
+            customer_id, budget_id)
+        
+        # Set network settings
+        campaign.network_settings.target_google_search = campaign_details['target_google_search']
+        campaign.network_settings.target_search_network = campaign_details['target_search_network']
+        campaign.network_settings.target_content_network = campaign_details['target_content_network']
+        campaign.network_settings.target_partner_search_network = campaign_details['target_partner_search_network']
+        
+        # Set dates (adjust as needed)
+        campaign.start_date = datetime.now().strftime('%Y%m%d')
+        campaign.end_date = (datetime.now() + timedelta(days=30)).strftime('%Y%m%d')
+        
+        # Add campaign operation
+        campaign_response = campaign_service.mutate_campaigns(
+            customer_id=customer_id,
+            operations=[campaign_operation]
+        )
+        new_campaign_id = campaign_response.results[0].resource_name.split('/')[-1]
+        
+        return new_campaign_id
+    
+    except Exception as e:
+        st.error(f"Failed to create similar campaign: {str(e)}")
+        st.error(traceback.format_exc())
+        return None
     
 def fetch_purchases_by_checkin_date(property_id, start_date_str, end_date_str):
     try:
@@ -1550,27 +1922,10 @@ def style_dataframe(df):
     format_dict.update({col: '£{:+,.2f}' for col in numeric_cols if '_change' in col and '_pct_change' not in col and 'revenue' in col})
     format_dict.update({col: '{:+.1f}%' for col in numeric_cols if '_pct_change' in col})
     
-    # Apply styling
+    # Apply styling without background gradients
     styled_df = df.style.format(format_dict)
     
-    # Apply color gradients
-    positive_cols = [col for col in numeric_cols if '_change' in col or '_pct_change' in col]
-    styled_df = styled_df.background_gradient(
-        cmap='RdYlGn', 
-        subset=[col for col in positive_cols if '_pct_change' not in col and 'revenue' not in col],
-        vmin=-100, vmax=100
-    ).background_gradient(
-        cmap='RdYlGn', 
-        subset=[col for col in positive_cols if '_pct_change' in col],
-        vmin=-100, vmax=100
-    ).background_gradient(
-        cmap='RdYlGn', 
-        subset=[col for col in positive_cols if 'revenue' in col],
-        vmin=-1000, vmax=1000
-    )
-    
     return styled_df
-
 def initialize_session_state():
     """Initialize all session state variables with persistence"""
     # Initialize selected_account first with a default value
@@ -1804,155 +2159,78 @@ def display_ads_time_series(start_date, end_date):
     
     st.markdown('</div>', unsafe_allow_html=True)
 def display_campaign_performance():
-    """Display campaign performance analysis"""
-    if st.session_state.ads_data.empty:
-        st.warning("No campaign data available")
-        return
-    
+    """Display campaign performance table"""
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("📊 Campaign Performance")
+    st.subheader("📋 Enabled Campaigns Performance")
     
-    # Calculate additional metrics
-    campaign_df = st.session_state.ads_data.copy()
-    campaign_df['cost_per_conversion'] = np.where(
-        campaign_df['conversions'] > 0,
-        campaign_df['cost'] / campaign_df['conversions'],
-        0
-    )
-    campaign_df['conversion_rate'] = np.where(
-        campaign_df['clicks'] > 0,
-        campaign_df['conversions'] / campaign_df['clicks'],
-        0
-    )
-    campaign_df['roas'] = campaign_df['conversion_value'] / campaign_df['cost']
+    # Filter for enabled campaigns only
+    campaign_data = st.session_state.ads_data[
+        st.session_state.ads_data['campaign_status'] == 'ENABLED'
+    ] if 'campaign_status' in st.session_state.ads_data.columns else st.session_state.ads_data
     
-    # Group by campaign
-    campaign_performance = campaign_df.groupby('campaign_name').agg({
+    # Aggregate campaign data
+    campaign_data = campaign_data.groupby(['campaign_id', 'campaign_name']).agg({
+        'cost': 'sum',
         'impressions': 'sum',
         'clicks': 'sum',
-        'cost': 'sum',
-        'conversions': 'sum',
-        'conversion_value': 'sum',
-        'ctr': 'mean',
-        'cpc': 'mean',
-        'conversion_rate': 'mean',
-        'cost_per_conversion': 'mean',
-        'roas': 'mean'
-    }).reset_index()
-    
-    # Display top campaigns
-    st.markdown("### 🏆 Top Performing Campaigns (by Conversion Value)")
-    st.dataframe(
-        campaign_performance.nlargest(10, 'conversion_value')
-        .rename(columns={
-            'campaign_name': 'Campaign',
-            'impressions': 'Impressions',
-            'clicks': 'Clicks',
-            'cost': 'Cost (£)',
-            'conversions': 'Conversions',
-            'conversion_value': 'Value (£)',
-            'ctr': 'CTR',
-            'cpc': 'CPC (£)',
-            'conversion_rate': 'Conv. Rate',
-            'cost_per_conversion': 'CPA (£)',
-            'roas': 'ROAS'
-        })
-        .style.format({
-            'Impressions': '{:,.0f}',
-            'Clicks': '{:,.0f}',
-            'Cost (£)': '£{:,.2f}',
-            'Value (£)': '£{:,.2f}',
-            'CTR': '{:.2%}',
-            'CPC (£)': '£{:,.2f}',
-            'Conv. Rate': '{:.2%}',
-            'CPA (£)': '£{:,.2f}',
-            'ROAS': '{:.2f}'
-        }).background_gradient(
-            cmap='Blues',
-            subset=['Impressions', 'Clicks']
-        ).background_gradient(
-            cmap='Greens',
-            subset=['Value (£)', 'ROAS', 'Conv. Rate']
-        ).background_gradient(
-            cmap='Reds',
-            subset=['CPC (£)', 'CPA (£)']
-        ),
-        height=400,
-        use_container_width=True
-    )
-    
-    # Campaign trends visualization
-    st.markdown("### 📈 Campaign Performance Over Time")
-    
-    # Aggregate by campaign and date
-    daily_campaign_data = campaign_df.groupby(['date', 'campaign_name']).agg({
-        'cost': 'sum',
-        'clicks': 'sum',
-        'impressions': 'sum',
         'conversions': 'sum',
         'conversion_value': 'sum'
     }).reset_index()
     
-    # Select campaigns to visualize
-    top_campaigns = daily_campaign_data.groupby('campaign_name')['cost'].sum().nlargest(5).index.tolist()
-    selected_campaigns = st.multiselect(
-        "Select campaigns to visualize",
-        options=daily_campaign_data['campaign_name'].unique(),
-        default=top_campaigns,
-        key='campaign_selection'
-    )
+    # Rest of the function remains the same...    # Calculate metrics
+    campaign_data['ctr'] = (campaign_data['clicks'] / campaign_data['impressions']) * 100
+    campaign_data['cpc'] = campaign_data['cost'] / campaign_data['clicks']
+    campaign_data['roas'] = campaign_data['conversion_value'] / campaign_data['cost']
+    campaign_data['cost_per_conversion'] = campaign_data['cost'] / campaign_data['conversions']
     
-    if selected_campaigns:
-        filtered_data = daily_campaign_data[daily_campaign_data['campaign_name'].isin(selected_campaigns)]
-        
-        # Create visualization
-        fig = go.Figure()
-        
-        for campaign in selected_campaigns:
-            campaign_data = filtered_data[filtered_data['campaign_name'] == campaign]
-            
-            fig.add_trace(go.Scatter(
-                x=campaign_data['date'],
-                y=campaign_data['cost'],
-                name=f"{campaign} (Cost)",
-                line=dict(width=2),
-                yaxis='y1',
-                hovertemplate='%{x|%b %d}<br>Cost: £%{y:,.2f}<extra></extra>'
-            ))
-            
-            fig.add_trace(go.Scatter(
-                x=campaign_data['date'],
-                y=campaign_data['conversion_value'],
-                name=f"{campaign} (Value)",
-                line=dict(width=2, dash='dot'),
-                yaxis='y1',
-                hovertemplate='%{x|%b %d}<br>Value: £%{y:,.2f}<extra></extra>'
-            ))
-        
-        fig.update_layout(
-            title='Cost vs Conversion Value by Campaign',
-            xaxis=dict(title='Date', showgrid=False),
-            yaxis=dict(
-                title='Cost/Value (£)',
-                side='left',
-                showgrid=False,
-                tickprefix='£'
-            ),
-            hovermode='x unified',
-            legend=dict(
-                orientation='h',
-                yanchor='bottom',
-                y=1.02,
-                xanchor='right',
-                x=1
-            ),
-            plot_bgcolor='rgba(0,0,0,0)',
-            height=500
+    # Replace infinities and NaN with 0
+    campaign_data = campaign_data.replace([np.inf, -np.inf], np.nan).fillna(0)
+    
+    # Display the table
+    st.dataframe(
+        campaign_data.sort_values('cost', ascending=False)
+        .rename(columns={
+            'campaign_id': 'Campaign ID',
+            'campaign_name': 'Campaign Name',
+            'cost': 'Cost (£)',
+            'impressions': 'Impressions',
+            'clicks': 'Clicks',
+            'conversions': 'Conversions',
+            'conversion_value': 'Value (£)',
+            'ctr': 'CTR (%)',
+            'cpc': 'CPC (£)',
+            'roas': 'ROAS',
+            'cost_per_conversion': 'CPA (£)'
+        })
+        .style.format({
+            'Cost (£)': '£{:,.2f}',
+            'Impressions': '{:,.0f}',
+            'Clicks': '{:,.0f}',
+            'Conversions': '{:,.0f}',
+            'Value (£)': '£{:,.2f}',
+            'CTR (%)': '{:.1f}%',
+            'CPC (£)': '£{:,.2f}',
+            'ROAS': '{:.2f}',
+            'CPA (£)': '£{:,.2f}'
+        })
+        .background_gradient(
+            cmap='Blues',
+            subset=['Cost (£)', 'Impressions']
         )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
+        .background_gradient(
+            cmap='Greens',
+            subset=['Conversions', 'Value (£)', 'ROAS']
+        )
+        .background_gradient(
+            cmap='Reds',
+            subset=['CPC (£)', 'CPA (£)'],
+            vmin=0, vmax=5
+        ),
+        height=600,
+        use_container_width=True
+    )
     st.markdown('</div>', unsafe_allow_html=True)
+
 def display_keywords_performance():
     """Display keywords performance analysis"""
     if st.session_state.keywords_data.empty:
@@ -1960,10 +2238,19 @@ def display_keywords_performance():
         return
     
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("🔍 Paid Search Keywords Performance")
+    st.subheader("🔍 Paid Search Keywords Performance (Enabled Campaigns Only)")
     
-    # Calculate additional metrics
-    keywords_df = st.session_state.keywords_data.copy()
+    # Filter for enabled campaigns only
+    keywords_df = st.session_state.keywords_data[
+        st.session_state.keywords_data['campaign_status'] == 'ENABLED'
+    ] if 'campaign_status' in st.session_state.keywords_data.columns else st.session_state.keywords_data
+    
+    # Rest of the function remains the same...
+    keywords_df['cpc'] = np.where(
+        keywords_df['clicks'] > 0,
+        keywords_df['cost'] / keywords_df['clicks'],
+        0
+    )
     keywords_df['cost_per_conversion'] = np.where(
         keywords_df['conversions'] > 0,
         keywords_df['cost'] / keywords_df['conversions'],
@@ -1978,10 +2265,6 @@ def display_keywords_performance():
     # Identify top and bottom performers
     top_keywords = keywords_df.nlargest(10, 'conversion_value').copy()
     bottom_keywords = keywords_df[keywords_df['cost'] > 0].nsmallest(10, 'roas').copy()
-    
-    # Calculate ROAS for display
-    top_keywords['roas'] = top_keywords['conversion_value'] / top_keywords['cost']
-    bottom_keywords['roas'] = bottom_keywords['conversion_value'] / bottom_keywords['cost']
     
     # Display top keywords with clicks and impressions
     st.markdown("### 🏆 Top Performing Keywords (by Conversion Value)")
@@ -2068,7 +2351,6 @@ def display_keywords_performance():
         height=400,
         use_container_width=True
     )
-    
     # Keyword trends visualization
     st.markdown("### 📈 Keyword Performance Trends")
     
