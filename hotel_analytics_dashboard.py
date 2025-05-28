@@ -1803,6 +1803,156 @@ def display_ads_time_series(start_date, end_date):
         st.error(f"Error creating time series chart: {str(e)}")
     
     st.markdown('</div>', unsafe_allow_html=True)
+def display_campaign_performance():
+    """Display campaign performance analysis"""
+    if st.session_state.ads_data.empty:
+        st.warning("No campaign data available")
+        return
+    
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("📊 Campaign Performance")
+    
+    # Calculate additional metrics
+    campaign_df = st.session_state.ads_data.copy()
+    campaign_df['cost_per_conversion'] = np.where(
+        campaign_df['conversions'] > 0,
+        campaign_df['cost'] / campaign_df['conversions'],
+        0
+    )
+    campaign_df['conversion_rate'] = np.where(
+        campaign_df['clicks'] > 0,
+        campaign_df['conversions'] / campaign_df['clicks'],
+        0
+    )
+    campaign_df['roas'] = campaign_df['conversion_value'] / campaign_df['cost']
+    
+    # Group by campaign
+    campaign_performance = campaign_df.groupby('campaign_name').agg({
+        'impressions': 'sum',
+        'clicks': 'sum',
+        'cost': 'sum',
+        'conversions': 'sum',
+        'conversion_value': 'sum',
+        'ctr': 'mean',
+        'cpc': 'mean',
+        'conversion_rate': 'mean',
+        'cost_per_conversion': 'mean',
+        'roas': 'mean'
+    }).reset_index()
+    
+    # Display top campaigns
+    st.markdown("### 🏆 Top Performing Campaigns (by Conversion Value)")
+    st.dataframe(
+        campaign_performance.nlargest(10, 'conversion_value')
+        .rename(columns={
+            'campaign_name': 'Campaign',
+            'impressions': 'Impressions',
+            'clicks': 'Clicks',
+            'cost': 'Cost (£)',
+            'conversions': 'Conversions',
+            'conversion_value': 'Value (£)',
+            'ctr': 'CTR',
+            'cpc': 'CPC (£)',
+            'conversion_rate': 'Conv. Rate',
+            'cost_per_conversion': 'CPA (£)',
+            'roas': 'ROAS'
+        })
+        .style.format({
+            'Impressions': '{:,.0f}',
+            'Clicks': '{:,.0f}',
+            'Cost (£)': '£{:,.2f}',
+            'Value (£)': '£{:,.2f}',
+            'CTR': '{:.2%}',
+            'CPC (£)': '£{:,.2f}',
+            'Conv. Rate': '{:.2%}',
+            'CPA (£)': '£{:,.2f}',
+            'ROAS': '{:.2f}'
+        }).background_gradient(
+            cmap='Blues',
+            subset=['Impressions', 'Clicks']
+        ).background_gradient(
+            cmap='Greens',
+            subset=['Value (£)', 'ROAS', 'Conv. Rate']
+        ).background_gradient(
+            cmap='Reds',
+            subset=['CPC (£)', 'CPA (£)']
+        ),
+        height=400,
+        use_container_width=True
+    )
+    
+    # Campaign trends visualization
+    st.markdown("### 📈 Campaign Performance Over Time")
+    
+    # Aggregate by campaign and date
+    daily_campaign_data = campaign_df.groupby(['date', 'campaign_name']).agg({
+        'cost': 'sum',
+        'clicks': 'sum',
+        'impressions': 'sum',
+        'conversions': 'sum',
+        'conversion_value': 'sum'
+    }).reset_index()
+    
+    # Select campaigns to visualize
+    top_campaigns = daily_campaign_data.groupby('campaign_name')['cost'].sum().nlargest(5).index.tolist()
+    selected_campaigns = st.multiselect(
+        "Select campaigns to visualize",
+        options=daily_campaign_data['campaign_name'].unique(),
+        default=top_campaigns,
+        key='campaign_selection'
+    )
+    
+    if selected_campaigns:
+        filtered_data = daily_campaign_data[daily_campaign_data['campaign_name'].isin(selected_campaigns)]
+        
+        # Create visualization
+        fig = go.Figure()
+        
+        for campaign in selected_campaigns:
+            campaign_data = filtered_data[filtered_data['campaign_name'] == campaign]
+            
+            fig.add_trace(go.Scatter(
+                x=campaign_data['date'],
+                y=campaign_data['cost'],
+                name=f"{campaign} (Cost)",
+                line=dict(width=2),
+                yaxis='y1',
+                hovertemplate='%{x|%b %d}<br>Cost: £%{y:,.2f}<extra></extra>'
+            ))
+            
+            fig.add_trace(go.Scatter(
+                x=campaign_data['date'],
+                y=campaign_data['conversion_value'],
+                name=f"{campaign} (Value)",
+                line=dict(width=2, dash='dot'),
+                yaxis='y1',
+                hovertemplate='%{x|%b %d}<br>Value: £%{y:,.2f}<extra></extra>'
+            ))
+        
+        fig.update_layout(
+            title='Cost vs Conversion Value by Campaign',
+            xaxis=dict(title='Date', showgrid=False),
+            yaxis=dict(
+                title='Cost/Value (£)',
+                side='left',
+                showgrid=False,
+                tickprefix='£'
+            ),
+            hovermode='x unified',
+            legend=dict(
+                orientation='h',
+                yanchor='bottom',
+                y=1.02,
+                xanchor='right',
+                x=1
+            ),
+            plot_bgcolor='rgba(0,0,0,0)',
+            height=500
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
 def display_keywords_performance():
     """Display keywords performance analysis"""
     if st.session_state.keywords_data.empty:
