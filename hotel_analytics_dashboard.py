@@ -2536,20 +2536,19 @@ def main():
         "308381004": "Holiday Inn Leicester Wiston"
     }
     
-    selected_property = st.selectbox(
+    
+    tab1, tab2 = st.tabs(["GA4 Analytics", "Google Ads Performance"])
+    
+    with tab1:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        selected_property = st.selectbox(
         "Select Property",
         options=list(property_options.keys()),
         format_func=lambda x: f"{x} - {property_options[x]}",
         index=0,
         help="Select the GA4 property you want to analyze"
     )
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    tab1, tab2 = st.tabs(["GA4 Analytics", "Google Ads Performance"])
-    
-    with tab1:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        
+        st.markdown('</div>', unsafe_allow_html=True)
         # Get the corresponding Google Ads account for the selected property
         property_to_ads_mapping = {
             "308398104": "1296045272",  # Mercure Hyde Park
