@@ -2533,7 +2533,7 @@ def main():
         "308414291": "Mercure London Paddington",
         "308386258": "Mercure Nottingham City Centre",
         "471474513": "Best Western Sheffield",
-        "308381004": "Holiday Inn Leicester Wiston"
+        "308381004": "Holiday Inn Leicester Wigston"
     }
     
     
