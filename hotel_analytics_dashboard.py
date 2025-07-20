@@ -489,9 +489,9 @@ GOOGLE_ADS_TOKEN_EXPIRY={credentials.expiry.timestamp() if credentials.expiry el
                     st.error(f"Failed to exchange authorization code: {str(e)}")
                     st.error(traceback.format_exc())
 def display_roi_metrics_card(property_id, property_name, ads_account_id, start_date, end_date):
-    """Display ROI metrics card for the selected hotel"""
+    """Display ROI metrics card for the selected hotel with enhanced Google Ads data"""
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader(f"📊 ROI Metrics for {property_name}")
+    st.subheader(f"📊 ROI & Performance Metrics for {property_name}")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -504,25 +504,62 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
         ga_revenue = fetch_ga4_paid_revenue(property_id, start_date, end_date)
         total_revenue = ga_revenue['revenue'].sum() if not ga_revenue.empty else 0
     
-    # Fetch Google Ads spend
-    with st.spinner("Fetching Google Ads spend..."):
+    # Fetch Google Ads data
+    with st.spinner("Fetching Google Ads performance data..."):
         ads_config = GoogleAdsConfig(customer_id=ads_account_id)
         ads_manager = GoogleAdsManager(ads_config)
+        
         if ads_manager.initialize_client():
+            # Fetch overall campaign data
             ads_data = ads_manager.fetch_google_ads_data(
                 customer_id=ads_account_id,
                 start_date=start_date,
                 end_date=end_date
             )
+            
+            # Calculate totals
             total_spend = ads_data['cost'].sum() if not ads_data.empty else 0
+            total_conversions = ads_data['conversions'].sum() if not ads_data.empty else 0
+            total_clicks = ads_data['clicks'].sum() if not ads_data.empty else 0
+            
+            # Breakdown by campaign type
+            if not ads_data.empty:
+                campaign_types = ads_data.groupby('campaign_name').agg({
+                    'cost': 'sum',
+                    'conversions': 'sum',
+                    'clicks': 'sum'
+                }).reset_index()
+                
+                # Classify campaign types
+                def classify_campaign(name):
+                    name = name.lower()
+                    if 'performance max' in name:
+                        return 'Performance Max'
+                    elif 'search' in name or 'brand' in name:
+                        return 'Paid Search'
+                    else:
+                        return 'Other'
+                
+                campaign_types['type'] = campaign_types['campaign_name'].apply(classify_campaign)
+                spend_breakdown = campaign_types.groupby('type').agg({
+                    'cost': 'sum',
+                    'conversions': 'sum',
+                    'clicks': 'sum'
+                }).reset_index()
+            else:
+                spend_breakdown = pd.DataFrame(columns=['type', 'cost', 'conversions', 'clicks'])
         else:
             total_spend = 0
+            total_conversions = 0
+            total_clicks = 0
+            spend_breakdown = pd.DataFrame(columns=['type', 'cost', 'conversions', 'clicks'])
     
     # Calculate ROI metrics
     profit = total_revenue - total_spend
     roi = (total_revenue / total_spend) if total_spend > 0 else 0
+    cpa = (total_spend / total_conversions) if total_conversions > 0 else 0
     
-    # Display metrics
+    # Display metrics in columns
     col1, col2, col3 = st.columns(3)
     
     with col1:
@@ -531,12 +568,23 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
             f"£{total_revenue:,.2f}",
             help="Total revenue from Google Ads traffic (Cross Network and Paid Search)"
         )
+        st.metric(
+            "Google Ads Conversions",
+            f"{total_conversions:,.0f}",
+            f"CPA: £{cpa:,.2f}",
+            help="Conversions attributed to Google Ads"
+        )
     
     with col2:
         st.metric(
             "Google Ads Spend",
             f"£{total_spend:,.2f}",
             help="Total cost from Google Ads campaigns"
+        )
+        st.metric(
+            "Google Ads Clicks",
+            f"{total_clicks:,.0f}",
+            help="Total clicks from Google Ads"
         )
     
     with col3:
@@ -546,6 +594,38 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
             f"£{profit:,.2f} Profit",
             help="Return on Investment: (Revenue - Spend) / Spend"
         )
+    
+    # Display spend breakdown
+    st.markdown("### 🔍 Google Ads Spend Breakdown")
+    if not spend_breakdown.empty:
+        # Calculate percentages
+        spend_breakdown['% of Spend'] = (spend_breakdown['cost'] / total_spend) * 100
+        spend_breakdown['% of Conversions'] = (spend_breakdown['conversions'] / total_conversions) * 100 if total_conversions > 0 else 0
+        
+        # Format the table
+        styled_breakdown = (
+            spend_breakdown[['type', 'cost', 'conversions', 'clicks', '% of Spend', '% of Conversions']]
+            .rename(columns={
+                'type': 'Campaign Type',
+                'cost': 'Spend (£)',
+                'conversions': 'Conversions',
+                'clicks': 'Clicks'
+            })
+            .sort_values('Spend (£)', ascending=False)
+            .style.format({
+                'Spend (£)': '£{:,.2f}',
+                'Conversions': '{:,.0f}',
+                'Clicks': '{:,.0f}',
+                '% of Spend': '{:.1f}%',
+                '% of Conversions': '{:.1f}%'
+            })
+            .background_gradient(cmap='Blues', subset=['Spend (£)'])
+            .background_gradient(cmap='Greens', subset=['Conversions'])
+        )
+        
+        st.dataframe(styled_breakdown, height=200, use_container_width=True)
+    else:
+        st.warning("No campaign data available for spend breakdown")
     
     # Add date range info
     st.caption(f"Date range: {start_date} to {end_date}")
