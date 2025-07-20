@@ -522,42 +522,66 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
             total_conversions = ads_data['conversions'].sum() if not ads_data.empty else 0
             total_clicks = ads_data['clicks'].sum() if not ads_data.empty else 0
             
-            # Breakdown by campaign type
+            # Get spend breakdown by actual campaign names
             if not ads_data.empty:
-                campaign_types = ads_data.groupby('campaign_name').agg({
+                spend_breakdown = ads_data.groupby('campaign_name').agg({
                     'cost': 'sum',
                     'conversions': 'sum',
                     'clicks': 'sum'
                 }).reset_index()
                 
-                # Classify campaign types
-                def classify_campaign(name):
+                # Add campaign type identification for filtering
+                def get_campaign_type(name):
                     name = name.lower()
-                    if 'performance max' in name:
-                        return 'Performance Max'
+                    if 'performance max' in name or 'pmax' in name:
+                        return 'PMax'
                     elif 'search' in name or 'brand' in name:
                         return 'Paid Search'
+                    elif 'display' in name:
+                        return 'Display'
+                    elif 'video' in name:
+                        return 'Video'
+                    elif 'shopping' in name:
+                        return 'Shopping'
                     else:
                         return 'Other'
                 
-                campaign_types['type'] = campaign_types['campaign_name'].apply(classify_campaign)
-                spend_breakdown = campaign_types.groupby('type').agg({
-                    'cost': 'sum',
-                    'conversions': 'sum',
-                    'clicks': 'sum'
-                }).reset_index()
+                spend_breakdown['type'] = spend_breakdown['campaign_name'].apply(get_campaign_type)
             else:
-                spend_breakdown = pd.DataFrame(columns=['type', 'cost', 'conversions', 'clicks'])
+                spend_breakdown = pd.DataFrame(columns=['campaign_name', 'cost', 'conversions', 'clicks', 'type'])
         else:
             total_spend = 0
             total_conversions = 0
             total_clicks = 0
-            spend_breakdown = pd.DataFrame(columns=['type', 'cost', 'conversions', 'clicks'])
+            spend_breakdown = pd.DataFrame(columns=['campaign_name', 'cost', 'conversions', 'clicks', 'type'])
     
     # Calculate ROI metrics
     profit = total_revenue - total_spend
     roi = (total_revenue / total_spend) if total_spend > 0 else 0
     cpa = (total_spend / total_conversions) if total_conversions > 0 else 0
+    
+    # Determine ROI classification
+    if roi == 0:
+        roi_class = "N/A (No Spend)"
+        roi_color = "gray"
+    elif roi < 5:
+        roi_class = "Horrible"
+        roi_color = "#FF0000"  # Red
+    elif 5 <= roi < 10:
+        roi_class = "Bad"
+        roi_color = "#FF6B6B"  # Light red
+    elif 10 <= roi < 15:
+        roi_class = "OK"
+        roi_color = "#FFD166"  # Yellow
+    elif 15 <= roi < 20:
+        roi_class = "Good"
+        roi_color = "#06D6A0"  # Green
+    elif 20 <= roi < 25:
+        roi_class = "Excellent"
+        roi_color = "#118AB2"  # Blue
+    else:
+        roi_class = "Most Excellent"
+        roi_color = "#073B4C"  # Dark blue
     
     # Display metrics in columns
     col1, col2, col3 = st.columns(3)
@@ -588,24 +612,41 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
         )
     
     with col3:
-        st.metric(
-            "ROI",
-            f"{roi:,.2f}",
-            f"£{profit:,.2f} Profit",
-            help="Return on Investment: (Revenue - Spend) / Spend"
-        )
+        # Custom ROI metric with classification
+        st.markdown(f"""
+        <div style="border-left: 4px solid {roi_color}; padding-left: 12px; margin-bottom: 16px;">
+            <div style="font-size: 14px; color: #666; margin-bottom: -10px;">ROI</div>
+            <div style="font-size: 28px; font-weight: bold; margin-bottom: -10px;">{roi:,.2f}</div>
+            <div style="font-size: 16px; color: {roi_color}; font-weight: bold;">{roi_class}</div>
+            <div style="font-size: 12px; color: #666;">£{profit:,.2f} Profit</div>
+        </div>
+        """, unsafe_allow_html=True)
     
-    # Display spend breakdown
-    st.markdown("### 🔍 Google Ads Spend Breakdown")
+    # Display spend breakdown with campaign type filter
+    st.markdown("### 🔍 Google Ads Spend Breakdown by Campaign")
+    
     if not spend_breakdown.empty:
+        # Add filter for campaign types
+        campaign_types = spend_breakdown['type'].unique().tolist()
+        selected_types = st.multiselect(
+            "Filter by campaign type:",
+            options=campaign_types,
+            default=campaign_types,
+            key="campaign_type_filter"
+        )
+        
+        # Filter data based on selection
+        filtered_breakdown = spend_breakdown[spend_breakdown['type'].isin(selected_types)]
+        
         # Calculate percentages
-        spend_breakdown['% of Spend'] = (spend_breakdown['cost'] / total_spend) * 100
-        spend_breakdown['% of Conversions'] = (spend_breakdown['conversions'] / total_conversions) * 100 if total_conversions > 0 else 0
+        filtered_breakdown['% of Spend'] = (filtered_breakdown['cost'] / total_spend) * 100
+        filtered_breakdown['% of Conversions'] = (filtered_breakdown['conversions'] / total_conversions) * 100 if total_conversions > 0 else 0
         
         # Format the table
         styled_breakdown = (
-            spend_breakdown[['type', 'cost', 'conversions', 'clicks', '% of Spend', '% of Conversions']]
+            filtered_breakdown[['campaign_name', 'type', 'cost', 'conversions', 'clicks', '% of Spend', '% of Conversions']]
             .rename(columns={
+                'campaign_name': 'Campaign Name',
                 'type': 'Campaign Type',
                 'cost': 'Spend (£)',
                 'conversions': 'Conversions',
@@ -623,9 +664,24 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
             .background_gradient(cmap='Greens', subset=['Conversions'])
         )
         
-        st.dataframe(styled_breakdown, height=200, use_container_width=True)
+        st.dataframe(styled_breakdown, height=400, use_container_width=True)
     else:
         st.warning("No campaign data available for spend breakdown")
+    
+    # Add ROI classification legend
+    st.markdown("""
+    <div style="background-color: #f8f9fa; padding: 12px; border-radius: 8px; margin-top: 16px;">
+        <h4 style="margin-top: 0; margin-bottom: 8px;">ROI Classification:</h4>
+        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            <div style="background-color: #FF0000; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">0-4: Horrible</div>
+            <div style="background-color: #FF6B6B; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">5-9: Bad</div>
+            <div style="background-color: #FFD166; color: black; padding: 4px 8px; border-radius: 4px; font-size: 12px;">10-14: OK</div>
+            <div style="background-color: #06D6A0; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">15-19: Good</div>
+            <div style="background-color: #118AB2; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">20-24: Excellent</div>
+            <div style="background-color: #073B4C; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">25+: Most Excellent</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Add date range info
     st.caption(f"Date range: {start_date} to {end_date}")
