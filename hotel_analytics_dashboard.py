@@ -2648,111 +2648,110 @@ def main():
     st.markdown('<h1 class="dashboard-title">📊 Ecommerce Dashboard</h1>', unsafe_allow_html=True)
     # Add this right after your st.markdown('<h1 class="dashboard-title">📊 Ecommerce Dashboard</h1>', unsafe_allow_html=True)
 
-        # Calculate overall ROI across all hotels
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.subheader("🏨 Overall Hotel Performance")
-        
-        # Define your properties and their corresponding Google Ads accounts
-        property_to_ads_mapping = {
-            "308398104": "1296045272",  # Mercure Hyde Park
-            "308376609": "7711291295",   # Hotel Indigo Paddington
-            "308414291": "1896471470",   # Mercure London Paddington
-            "308386258": "3787940566",   # Mercure Nottingham City Centre
-            "471474513": "3569916895",   # Best Western Sheffield
-            "308381004": "5668854094"    # Holiday Inn Leicester Wiston
-        }
-        
-        # Get current month range for calculations
-        current_date = datetime.now()
-        start_of_month = current_date.replace(day=1).strftime("%Y-%m-%d")
-        end_of_month = current_date.strftime("%Y-%m-%d")
-        
-        # Calculate totals across all hotels
-        total_revenue = 0
-        total_spend = 0
-        
-        with st.spinner("Calculating overall performance..."):
-            for property_id, ads_account_id in property_to_ads_mapping.items():
-                # Get GA revenue from paid sources
-                ga_revenue = fetch_ga4_paid_revenue(property_id, start_of_month, end_of_month)
-                property_revenue = ga_revenue['revenue'].sum() if not ga_revenue.empty else 0
-                total_revenue += property_revenue
-                
-                # Get Google Ads spend
-                ads_config = GoogleAdsConfig(customer_id=ads_account_id)
-                ads_manager = GoogleAdsManager(ads_config)
-                if ads_manager.initialize_client():
-                    ads_data = ads_manager.fetch_google_ads_data(
-                        customer_id=ads_account_id,
-                        start_date=start_of_month,
-                        end_date=end_of_month
-                    )
-                    property_spend = ads_data['cost'].sum() if not ads_data.empty else 0
-                    total_spend += property_spend
-        
-        # Calculate ROI metrics
-        if total_spend > 0:
-            overall_roi = total_revenue / total_spend
-            profit = total_revenue - total_spend
-            roi_class = "Excellent" if overall_roi >= 15 else "Good" if overall_roi >= 10 else "Needs Improvement"
-            roi_color = "#06D6A0" if overall_roi >= 15 else "#FFD166" if overall_roi >= 10 else "#EA4335"
-        else:
-            overall_roi = 0
-            profit = total_revenue
-            roi_class = "N/A (No Spend)"
-            roi_color = "#9E9E9E"
-        
-        # Display KPIs in columns
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric(
-                "Total Revenue (All Hotels)",
-                f"£{total_revenue:,.2f}",
-                help="Revenue from paid sources across all hotels this month"
-            )
-        
-        with col2:
-            st.metric(
-                "Total Ad Spend (All Hotels)",
-                f"£{total_spend:,.2f}",
-                help="Total Google Ads spend across all hotels this month"
-            )
-        
-        with col3:
-            # Custom ROI metric with classification
-            st.markdown(f"""
-            <div style="border-left: 4px solid {roi_color}; padding-left: 12px;">
-                <div style="font-size: 14px; color: #666; margin-bottom: -10px;">Overall ROI</div>
-                <div style="font-size: 28px; font-weight: bold; margin-bottom: -10px;">{overall_roi:,.2f}</div>
-                <div style="font-size: 16px; color: {roi_color}; font-weight: bold;">{roi_class}</div>
-                <div style="font-size: 12px; color: #666;">£{profit:,.2f} Profit</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        st.caption(f"Data for {current_date.strftime('%B %Y')}. ROI = Revenue / Ad Spend")
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Then continue with your existing property selector code...
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        property_options = {
-            "308398104": "Mercure Hyde Park",
-            "308376609": "Hotel Indigo Paddington", 
-            "308414291": "Mercure London Paddington",
-            "308386258": "Mercure Nottingham City Centre",
-            "471474513": "Best Western Sheffield",
-            "308381004": "Holiday Inn Leicester Wigston"
-        }
-        
-        selected_property = st.selectbox(
-            "Select Property",
-            options=list(property_options.keys()),
-            format_func=lambda x: f"{x} - {property_options[x]}",
-            index=0,
-            help="Select the GA4 property you want to analyze"
-        )
-        st.markdown('</div>', unsafe_allow_html=True)
+    # Calculate overall ROI across all hotels
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.subheader("🏨 Overall Hotel Performance")
     
+    # Define your properties and their corresponding Google Ads accounts
+    property_to_ads_mapping = {
+        "308398104": "1296045272",  # Mercure Hyde Park
+        "308376609": "7711291295",   # Hotel Indigo Paddington
+        "308414291": "1896471470",   # Mercure London Paddington
+        "308386258": "3787940566",   # Mercure Nottingham City Centre
+        "471474513": "3569916895",   # Best Western Sheffield
+        "308381004": "5668854094"    # Holiday Inn Leicester Wiston
+    }
+    
+    # Get current month range for calculations
+    current_date = datetime.now()
+    start_of_month = current_date.replace(day=1).strftime("%Y-%m-%d")
+    end_of_month = current_date.strftime("%Y-%m-%d")
+    
+    # Calculate totals across all hotels
+    total_revenue = 0
+    total_spend = 0
+    
+    with st.spinner("Calculating overall performance..."):
+        for property_id, ads_account_id in property_to_ads_mapping.items():
+            # Get GA revenue from paid sources
+            ga_revenue = fetch_ga4_paid_revenue(property_id, start_of_month, end_of_month)
+            property_revenue = ga_revenue['revenue'].sum() if not ga_revenue.empty else 0
+            total_revenue += property_revenue
+            
+            # Get Google Ads spend
+            ads_config = GoogleAdsConfig(customer_id=ads_account_id)
+            ads_manager = GoogleAdsManager(ads_config)
+            if ads_manager.initialize_client():
+                ads_data = ads_manager.fetch_google_ads_data(
+                    customer_id=ads_account_id,
+                    start_date=start_of_month,
+                    end_date=end_of_month
+                )
+                property_spend = ads_data['cost'].sum() if not ads_data.empty else 0
+                total_spend += property_spend
+    
+    # Calculate ROI metrics
+    if total_spend > 0:
+        overall_roi = total_revenue / total_spend
+        profit = total_revenue - total_spend
+        roi_class = "Excellent" if overall_roi >= 15 else "Good" if overall_roi >= 10 else "Needs Improvement"
+        roi_color = "#06D6A0" if overall_roi >= 15 else "#FFD166" if overall_roi >= 10 else "#EA4335"
+    else:
+        overall_roi = 0
+        profit = total_revenue
+        roi_class = "N/A (No Spend)"
+        roi_color = "#9E9E9E"
+    
+    # Display KPIs in columns
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(
+            "Total Revenue (All Hotels)",
+            f"£{total_revenue:,.2f}",
+            help="Revenue from paid sources across all hotels this month"
+        )
+    
+    with col2:
+        st.metric(
+            "Total Ad Spend (All Hotels)",
+            f"£{total_spend:,.2f}",
+            help="Total Google Ads spend across all hotels this month"
+        )
+    
+    with col3:
+        # Custom ROI metric with classification
+        st.markdown(f"""
+        <div style="border-left: 4px solid {roi_color}; padding-left: 12px;">
+            <div style="font-size: 14px; color: #666; margin-bottom: -10px;">Overall ROI</div>
+            <div style="font-size: 28px; font-weight: bold; margin-bottom: -10px;">{overall_roi:,.2f}</div>
+            <div style="font-size: 16px; color: {roi_color}; font-weight: bold;">{roi_class}</div>
+            <div style="font-size: 12px; color: #666;">£{profit:,.2f} Profit</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.caption(f"Data for {current_date.strftime('%B %Y')}. ROI = Revenue / Ad Spend")
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Then continue with your existing property selector code...
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    property_options = {
+        "308398104": "Mercure Hyde Park",
+        "308376609": "Hotel Indigo Paddington", 
+        "308414291": "Mercure London Paddington",
+        "308386258": "Mercure Nottingham City Centre",
+        "471474513": "Best Western Sheffield",
+        "308381004": "Holiday Inn Leicester Wigston"
+    }
+    
+    selected_property = st.selectbox(
+        "Select Property",
+        options=list(property_options.keys()),
+        format_func=lambda x: f"{x} - {property_options[x]}",
+        index=0,
+        help="Select the GA4 property you want to analyze"
+    )
+    st.markdown('</div>', unsafe_allow_html=True)    
     # Initialize date_ranges with a default value
     date_ranges = []
     
