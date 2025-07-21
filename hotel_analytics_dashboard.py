@@ -2732,26 +2732,7 @@ def main():
     
     st.caption(f"Data for {current_date.strftime('%B %Y')}. ROI = Revenue / Ad Spend")
     st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Then continue with your existing property selector code...
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    property_options = {
-        "308398104": "Mercure Hyde Park",
-        "308376609": "Hotel Indigo Paddington", 
-        "308414291": "Mercure London Paddington",
-        "308386258": "Mercure Nottingham City Centre",
-        "471474513": "Best Western Sheffield",
-        "308381004": "Holiday Inn Leicester Wigston"
-    }
-    
-    selected_property = st.selectbox(
-        "Select Property",
-        options=list(property_options.keys()),
-        format_func=lambda x: f"{x} - {property_options[x]}",
-        index=0,
-        help="Select the GA4 property you want to analyze"
-    )
-    st.markdown('</div>', unsafe_allow_html=True)    
+     
     # Initialize date_ranges with a default value
     date_ranges = []
     
