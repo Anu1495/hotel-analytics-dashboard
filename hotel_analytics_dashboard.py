@@ -2646,6 +2646,7 @@ def main():
     
     # Then proceed with the rest of your app
     st.markdown('<h1 class="dashboard-title">📊 Ecommerce Dashboard</h1>', unsafe_allow_html=True)
+    # Add this right after your st.markdown('<h1 class="dashboard-title">📊 Ecommerce Dashboard</h1>', unsafe_allow_html=True)
 
     # Calculate overall ROI across all hotels
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -2659,16 +2660,6 @@ def main():
         "308386258": "3787940566",   # Mercure Nottingham City Centre
         "471474513": "3569916895",   # Best Western Sheffield
         "308381004": "5668854094"    # Holiday Inn Leicester Wiston
-    }
-    
-    # Property options with names
-    property_options = {
-        "308398104": "Mercure Hyde Park",
-        "308376609": "Hotel Indigo Paddington", 
-        "308414291": "Mercure London Paddington",
-        "308386258": "Mercure Nottingham City Centre",
-        "471474513": "Best Western Sheffield",
-        "308381004": "Holiday Inn Leicester Wigston"
     }
     
     # Get current month range for calculations
@@ -2742,7 +2733,30 @@ def main():
     st.caption(f"Data for {current_date.strftime('%B %Y')}. ROI = Revenue / Ad Spend")
     st.markdown('</div>', unsafe_allow_html=True)
     
+    # Then continue with your existing property selector code...
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    property_options = {
+        "308398104": "Mercure Hyde Park",
+        "308376609": "Hotel Indigo Paddington", 
+        "308414291": "Mercure London Paddington",
+        "308386258": "Mercure Nottingham City Centre",
+        "471474513": "Best Western Sheffield",
+        "308381004": "Holiday Inn Leicester Wigston"
+    }
+    
+    selected_property = st.selectbox(
+        "Select Property",
+        options=list(property_options.keys()),
+        format_func=lambda x: f"{x} - {property_options[x]}",
+        index=0,
+        help="Select the GA4 property you want to analyze"
+    )
+    st.markdown('</div>', unsafe_allow_html=True)    
+    # Initialize date_ranges with a default value
+    date_ranges = []
+    
     # Google Ads account information
+    global google_ads_accounts
     google_ads_accounts = {
         "7711291295": "Hotel Indigo London Paddington",
         "1296045272": "Mercure Hyde Park Hotel", 
@@ -2752,29 +2766,42 @@ def main():
         "1896471470": "Mercure Paddington Hotel"
     }
 
+    # Add property selection with hotel names
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    property_options = {
+        "308398104": "Mercure Hyde Park",
+        "308376609": "Hotel Indigo Paddington", 
+        "308414291": "Mercure London Paddington",
+        "308386258": "Mercure Nottingham City Centre",
+        "471474513": "Best Western Sheffield",
+        "308381004": "Holiday Inn Leicester Wigston"
+    }
+    
+    
     tab1, tab2 = st.tabs(["GA4 Analytics", "Google Ads Performance"])
     
     with tab1:
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        
-        # Property selection moved here (only once)
         selected_property = st.selectbox(
-            "Select Property",
-            options=list(property_options.keys()),
-            format_func=lambda x: f"{x} - {property_options[x]}",
-            index=0,
-            help="Select the GA4 property you want to analyze",
-            key="property_select_ga4"  # Added unique key
-        )
-        
+        "Select Property",
+        options=list(property_options.keys()),
+        format_func=lambda x: f"{x} - {property_options[x]}",
+        index=0,
+        help="Select the GA4 property you want to analyze"
+    )
         st.markdown('</div>', unsafe_allow_html=True)
-        
         # Get the corresponding Google Ads account for the selected property
+        property_to_ads_mapping = {
+            "308398104": "1296045272",  # Mercure Hyde Park
+            "308376609": "7711291295",   # Hotel Indigo Paddington
+            "308414291": "1896471470",   # Mercure London Paddington
+            "308386258": "3787940566",   # Mercure Nottingham City Centre
+            "471474513": "3569916895",   # Best Western Sheffield
+            "308381004": "5668854094"    # Holiday Inn Leicester Wiston
+        }
+        
         ads_account_id = property_to_ads_mapping.get(selected_property)
         property_name = property_options.get(selected_property)
-        
-        # Rest of your GA4 Analytics tab code...
-        # [Previous GA4 Analytics code continues here...]
         
         # Main GA4 Analytics Dashboard - Date Selection
         st.subheader("Primary Time Period Selection")
