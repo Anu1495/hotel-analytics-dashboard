@@ -577,6 +577,9 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
         roi_class = "Good"
         roi_color = "#06D6A0"  # Green
     elif 20 <= roi < 25:
+        roi_class = "Great"
+        roi_color = "#118AB2"  # Blue
+    elif 26 <= roi < 30:
         roi_class = "Excellent"
         roi_color = "#118AB2"  # Blue
     else:
@@ -667,21 +670,6 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
         st.dataframe(styled_breakdown, height=400, use_container_width=True)
     else:
         st.warning("No campaign data available for spend breakdown")
-    
-    # Add ROI classification legend
-    st.markdown("""
-    <div style="background-color: #f8f9fa; padding: 12px; border-radius: 8px; margin-top: 16px;">
-        <h4 style="margin-top: 0; margin-bottom: 8px;">ROI Classification:</h4>
-        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-            <div style="background-color: #FF0000; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">0-4: Horrible</div>
-            <div style="background-color: #FF6B6B; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">5-9: Bad</div>
-            <div style="background-color: #FFD166; color: black; padding: 4px 8px; border-radius: 4px; font-size: 12px;">10-14: OK</div>
-            <div style="background-color: #06D6A0; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">15-19: Good</div>
-            <div style="background-color: #118AB2; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">20-24: Excellent</div>
-            <div style="background-color: #073B4C; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">25+: Most Excellent</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
     
     # Add date range info
     st.caption(f"Date range: {start_date} to {end_date}")
@@ -2694,7 +2682,7 @@ def main():
     if total_spend > 0:
         overall_roi = total_revenue / total_spend
         profit = total_revenue - total_spend
-        roi_class = "Excellent" if overall_roi >= 15 else "Good" if overall_roi >= 10 else "Needs Improvement"
+        roi_class = "Excellent" if overall_roi >= 26 else "Great" if overall_roi >= 20 else "Good" if overall_roi >= 15 else "Ok" if overall_roi >= 10 else "Needs Improvement"
         roi_color = "#06D6A0" if overall_roi >= 15 else "#FFD166" if overall_roi >= 10 else "#EA4335"
     else:
         overall_roi = 0
