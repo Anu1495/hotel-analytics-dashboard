@@ -593,7 +593,8 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                     
                     # Check for Performance Max/Cross Network first
                     if ('performance max' in name_lower or 'pmax' in name_lower or 
-                        'cross network' in name_lower or 'p-max' in name_lower):
+                        'cross network' in name_lower or 'p-max' in name_lower or
+                        'cross-network' in name_lower):
                         return 'Performance Max'
                     # Then check for Paid Search
                     elif ('search' in name_lower or 'brand' in name_lower or 
@@ -701,6 +702,10 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     st.markdown("### 🔍 Google Ads Spend Breakdown by Campaign (Cross Network & Paid Search Only)")
     
     if not spend_breakdown.empty and all(col in spend_breakdown.columns for col in ['cost', 'clicks', 'impressions', 'type']):
+        # First show all campaign types for debugging
+        st.write("**All Campaign Types Found:**")
+        st.write(spend_breakdown['type'].value_counts())
+        
         # Filter for only Performance Max (Cross Network) and Paid Search campaigns
         filtered_breakdown = spend_breakdown[
             spend_breakdown['type'].str.contains('Performance Max|Paid Search')
@@ -711,8 +716,14 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
             campaign_purchases = {}
             campaign_revenue = {}
             
-            for _, campaign_row in filtered_breakdown.iterrows():
+            # Create progress bar for fetching campaign data
+            progress_bar = st.progress(0)
+            total_campaigns = len(filtered_breakdown)
+            
+            for i, (_, campaign_row) in enumerate(filtered_breakdown.iterrows()):
                 campaign_name = campaign_row['campaign_name']
+                progress_bar.progress((i + 1) / total_campaigns, text=f"Fetching GA4 data for {campaign_name}...")
+                
                 with st.spinner(f"Fetching GA4 purchases for {campaign_name}..."):
                     ga_campaign_data = get_purchases_by_campaign(
                         property_id, campaign_name, start_date, end_date
@@ -720,12 +731,19 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                     campaign_purchases[campaign_name] = ga_campaign_data['purchases'].sum() if not ga_campaign_data.empty else 0
                     campaign_revenue[campaign_name] = ga_campaign_data['revenue'].sum() if not ga_campaign_data.empty else 0
             
+            # Complete progress bar
+            progress_bar.progress(1.0, text="Data fetch complete!")
+            
             # Add the actual GA4 purchase and revenue data to the breakdown
             filtered_breakdown['purchases'] = filtered_breakdown['campaign_name'].map(campaign_purchases)
             filtered_breakdown['revenue'] = filtered_breakdown['campaign_name'].map(campaign_revenue)
             
             # Calculate metrics using actual GA4 data
-            filtered_breakdown['CTR'] = (filtered_breakdown['clicks'] / filtered_breakdown['impressions']) * 100
+            filtered_breakdown['CTR'] = np.where(
+                filtered_breakdown['impressions'] > 0,
+                (filtered_breakdown['clicks'] / filtered_breakdown['impressions']) * 100,
+                0
+            )
             filtered_breakdown['CPC'] = np.where(
                 filtered_breakdown['clicks'] > 0,
                 filtered_breakdown['cost'] / filtered_breakdown['clicks'],
@@ -741,7 +759,11 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                 filtered_breakdown['revenue'] / filtered_breakdown['cost'],
                 0
             )
-            filtered_breakdown['% of Total Spend'] = (filtered_breakdown['cost'] / total_spend) * 100
+            filtered_breakdown['% of Total Spend'] = np.where(
+                total_spend > 0,
+                (filtered_breakdown['cost'] / total_spend) * 100,
+                0
+            )
             
             # Replace infinities and NaN with 0
             filtered_breakdown = filtered_breakdown.replace([np.inf, -np.inf], np.nan).fillna(0)
@@ -3785,6 +3807,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
