@@ -181,10 +181,11 @@ def calculate_roi_by_hotel(ga_properties, ads_accounts, start_date, end_date):
             st.warning(f"No matching Google Ads account found for {hotel_name}")
             continue
             
-        # Fetch GA revenue data
-        with st.spinner(f"Fetching GA revenue for {hotel_name}..."):
-            ga_data = fetch_ga4_data(property_id, start_date, end_date)
+        # Fetch GA revenue and conversion data
+        with st.spinner(f"Fetching GA revenue and conversions for {hotel_name}..."):
+            ga_data = fetch_ga4_paid_revenue(property_id, start_date, end_date)
             total_revenue = ga_data['revenue'].sum()
+            total_conversions = ga_data['conversions'].sum()  # Use GA conversions
         
         # Fetch Ads cost data
         with st.spinner(f"Fetching Ads cost for {hotel_name}..."):
@@ -200,9 +201,10 @@ def calculate_roi_by_hotel(ga_properties, ads_accounts, start_date, end_date):
             else:
                 total_cost = 0
         
-        # Calculate ROI metrics
+        # Calculate ROI metrics using GA conversions
         roi = (total_revenue) / total_cost if total_cost > 0 else 0
         profit = total_revenue - total_cost
+        cpa = (total_cost / total_conversions) if total_conversions > 0 else 0
         
         roi_data.append({
             'Hotel': hotel_name,
@@ -210,12 +212,14 @@ def calculate_roi_by_hotel(ga_properties, ads_accounts, start_date, end_date):
             'Ads Account': ads_account_id,
             'Revenue (£)': total_revenue,
             'Ad Spend (£)': total_cost,
+            'Conversions': total_conversions,  # Use GA conversions
+            'CPA (£)': cpa,
             'Profit (£)': profit,
             'ROI': roi
         })
     
     return pd.DataFrame(roi_data)
-
+    
 def safe_load_dotenv(env_path=None):
     """Safely load environment variables, with Azure compatibility"""
     try:
@@ -499,12 +503,13 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     with col2:
         st.markdown(f"**Google Ads Account:** `{ads_account_id}`")
     
-    # Fetch GA revenue from paid sources only
-    with st.spinner("Fetching GA revenue from paid sources..."):
-        ga_revenue = fetch_ga4_paid_revenue(property_id, start_date, end_date)
-        total_revenue = ga_revenue['revenue'].sum() if not ga_revenue.empty else 0
+    # Fetch GA revenue and conversions from paid sources only
+    with st.spinner("Fetching GA revenue and conversions from paid sources..."):
+        ga_data = fetch_ga4_paid_revenue(property_id, start_date, end_date)
+        total_revenue = ga_data['revenue'].sum() if not ga_data.empty else 0
+        total_conversions = ga_data['conversions'].sum() if not ga_data.empty else 0  # Use GA conversions
     
-    # Fetch Google Ads data
+    # Fetch Google Ads data (for spend only)
     with st.spinner("Fetching Google Ads performance data..."):
         ads_config = GoogleAdsConfig(customer_id=ads_account_id)
         ads_manager = GoogleAdsManager(ads_config)
@@ -517,17 +522,15 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                 end_date=end_date
             )
             
-            # Calculate totals
+            # Calculate totals (only spend and clicks, not conversions)
             total_spend = ads_data['cost'].sum() if not ads_data.empty else 0
-            total_conversions = ads_data['conversions'].sum() if not ads_data.empty else 0
             total_clicks = ads_data['clicks'].sum() if not ads_data.empty else 0
             
             # Get spend breakdown by actual campaign names
             if not ads_data.empty:
                 spend_breakdown = ads_data.groupby('campaign_name').agg({
                     'cost': 'sum',
-                    'conversions': 'sum',
-                    'clicks': 'sum'
+                    'clicks': 'sum'  # Remove conversions from here
                 }).reset_index()
                 
                 # Add campaign type identification for filtering
@@ -548,14 +551,13 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                 
                 spend_breakdown['type'] = spend_breakdown['campaign_name'].apply(get_campaign_type)
             else:
-                spend_breakdown = pd.DataFrame(columns=['campaign_name', 'cost', 'conversions', 'clicks', 'type'])
+                spend_breakdown = pd.DataFrame(columns=['campaign_name', 'cost', 'clicks', 'type'])
         else:
             total_spend = 0
-            total_conversions = 0
             total_clicks = 0
-            spend_breakdown = pd.DataFrame(columns=['campaign_name', 'cost', 'conversions', 'clicks', 'type'])
+            spend_breakdown = pd.DataFrame(columns=['campaign_name', 'cost', 'clicks', 'type'])
     
-    # Calculate ROI metrics
+    # Calculate ROI metrics using GA conversions instead of Ads conversions
     profit = total_revenue - total_spend
     roi = (total_revenue / total_spend) if total_spend > 0 else 0
     cpa = (total_spend / total_conversions) if total_conversions > 0 else 0
@@ -596,10 +598,10 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
             help="Total revenue from Google Ads traffic (Cross Network and Paid Search)"
         )
         st.metric(
-            "Google Ads Conversions",
+            "GA4 Conversions (Paid Sources)",
             f"{total_conversions:,.0f}",
             f"CPA: £{cpa:,.2f}",
-            help="Conversions attributed to Google Ads"
+            help="Conversions from Google Ads traffic measured in GA4"
         )
     
     with col2:
@@ -643,28 +645,26 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
         
         # Calculate percentages
         filtered_breakdown['% of Spend'] = (filtered_breakdown['cost'] / total_spend) * 100
-        filtered_breakdown['% of Conversions'] = (filtered_breakdown['conversions'] / total_conversions) * 100 if total_conversions > 0 else 0
+        filtered_breakdown['% of Clicks'] = (filtered_breakdown['clicks'] / total_clicks) * 100 if total_clicks > 0 else 0
         
         # Format the table
         styled_breakdown = (
-            filtered_breakdown[['campaign_name', 'type', 'cost', 'conversions', 'clicks', '% of Spend', '% of Conversions']]
+            filtered_breakdown[['campaign_name', 'type', 'cost', 'clicks', '% of Spend', '% of Clicks']]
             .rename(columns={
                 'campaign_name': 'Campaign Name',
                 'type': 'Campaign Type',
                 'cost': 'Spend (£)',
-                'conversions': 'Conversions',
                 'clicks': 'Clicks'
             })
             .sort_values('Spend (£)', ascending=False)
             .style.format({
                 'Spend (£)': '£{:,.2f}',
-                'Conversions': '{:,.0f}',
                 'Clicks': '{:,.0f}',
                 '% of Spend': '{:.1f}%',
-                '% of Conversions': '{:.1f}%'
+                '% of Clicks': '{:.1f}%'
             })
             .background_gradient(cmap='Blues', subset=['Spend (£)'])
-            .background_gradient(cmap='Greens', subset=['Conversions'])
+            .background_gradient(cmap='Greens', subset=['Clicks'])
         )
         
         st.dataframe(styled_breakdown, height=400, use_container_width=True)
@@ -675,7 +675,7 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     st.caption(f"Date range: {start_date} to {end_date}")
     st.markdown('</div>', unsafe_allow_html=True)
 def fetch_ga4_paid_revenue(property_id, start_date, end_date):
-    """Fetch GA4 revenue data from paid sources only (Cross Network and Paid Search)"""
+    """Fetch GA4 revenue and conversion data from paid sources only (Cross Network and Paid Search)"""
     try:
         client = get_ga_client()
         
@@ -683,7 +683,10 @@ def fetch_ga4_paid_revenue(property_id, start_date, end_date):
         request = RunReportRequest(
             property=f"properties/{property_id}",
             dimensions=[Dimension(name="date"), Dimension(name="sessionSourceMedium")],
-            metrics=[Metric(name="purchaseRevenue")],
+            metrics=[
+                Metric(name="purchaseRevenue"),
+                Metric(name="conversions")  # Add conversions metric
+            ],
             date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
             dimension_filter=FilterExpression(
                 or_group=FilterExpressionList(
@@ -705,22 +708,25 @@ def fetch_ga4_paid_revenue(property_id, start_date, end_date):
             date = row.dimension_values[0].value
             source_medium = row.dimension_values[1].value
             revenue = float(row.metric_values[0].value)
+            conversions = float(row.metric_values[1].value)  # Get conversions
             
             data.append({
                 'date': date,
                 'source_medium': source_medium,
-                'revenue': revenue
+                'revenue': revenue,
+                'conversions': conversions  # Add conversions to data
             })
         
-        # Return DataFrame with revenue column, even if empty
+        # Return DataFrame with revenue and conversions columns, even if empty
         df = pd.DataFrame(data)
         if df.empty:
-            return pd.DataFrame(columns=['date', 'source_medium', 'revenue'])
+            return pd.DataFrame(columns=['date', 'source_medium', 'revenue', 'conversions'])
         return df
         
     except Exception as e:
         st.error(f"Failed to fetch GA4 paid revenue data: {str(e)}")
-        return pd.DataFrame(columns=['date', 'source_medium', 'revenue'])
+        return pd.DataFrame(columns=['date', 'source_medium', 'revenue', 'conversions'])
+        
 class GoogleAdsManager:
     def __init__(self, config):
         self.config = config
@@ -2659,12 +2665,15 @@ def main():
     total_revenue = 0
     total_spend = 0
     
+    # In the main function, update the overall hotel performance section:
     with st.spinner("Calculating overall performance..."):
         for property_id, ads_account_id in property_to_ads_mapping.items():
-            # Get GA revenue from paid sources
-            ga_revenue = fetch_ga4_paid_revenue(property_id, start_of_month, end_of_month)
-            property_revenue = ga_revenue['revenue'].sum() if not ga_revenue.empty else 0
+            # Get GA revenue and conversions from paid sources
+            ga_data = fetch_ga4_paid_revenue(property_id, start_of_month, end_of_month)
+            property_revenue = ga_data['revenue'].sum() if not ga_data.empty else 0
+            property_conversions = ga_data['conversions'].sum() if not ga_data.empty else 0  # Add this line
             total_revenue += property_revenue
+            total_conversions += property_conversions  # Add this line
             
             # Get Google Ads spend
             ads_config = GoogleAdsConfig(customer_id=ads_account_id)
@@ -2678,20 +2687,8 @@ def main():
                 property_spend = ads_data['cost'].sum() if not ads_data.empty else 0
                 total_spend += property_spend
     
-    # Calculate ROI metrics
-    if total_spend > 0:
-        overall_roi = total_revenue / total_spend
-        profit = total_revenue - total_spend
-        roi_class = "Excellent" if overall_roi >= 26 else "Great" if overall_roi >= 20 else "Good" if overall_roi >= 15 else "Ok" if overall_roi >= 10 else "Needs Improvement"
-        roi_color = "#06D6A0" if overall_roi >= 15 else "#FFD166" if overall_roi >= 10 else "#EA4335"
-    else:
-        overall_roi = 0
-        profit = total_revenue
-        roi_class = "N/A (No Spend)"
-        roi_color = "#9E9E9E"
-    
-    # Display KPIs in columns
-    col1, col2, col3 = st.columns(3)
+    # Then add a conversion metric to the display:
+    col1, col2, col3, col4 = st.columns(4)  # Change to 4 columns
     
     with col1:
         st.metric(
@@ -2708,6 +2705,16 @@ def main():
         )
     
     with col3:
+        # Calculate CPA
+        cpa = (total_spend / total_conversions) if total_conversions > 0 else 0
+        st.metric(
+            "Total Conversions (All Hotels)",
+            f"{total_conversions:,.0f}",
+            f"CPA: £{cpa:,.2f}",
+            help="Conversions from paid sources across all hotels this month"
+        )
+    
+    with col4:
         # Custom ROI metric with classification
         st.markdown(f"""
         <div style="border-left: 4px solid {roi_color}; padding-left: 12px;">
@@ -3554,3 +3561,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
