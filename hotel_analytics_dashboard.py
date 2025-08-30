@@ -492,6 +492,7 @@ GOOGLE_ADS_TOKEN_EXPIRY={credentials.expiry.timestamp() if credentials.expiry el
                 except Exception as e:
                     st.error(f"Failed to exchange authorization code: {str(e)}")
                     st.error(traceback.format_exc())
+# Add this function to fetch purchases by campaign from GA4
 def get_purchases_by_campaign(property_id, campaign_name, start_date, end_date):
     """Get purchase events for a specific campaign from GA4"""
     try:
@@ -541,6 +542,7 @@ def get_purchases_by_campaign(property_id, campaign_name, start_date, end_date):
     except Exception as e:
         st.error(f"Failed to fetch purchase data for campaign {campaign_name}: {str(e)}")
         return pd.DataFrame(columns=['date', 'revenue', 'purchases'])
+        
 def display_roi_metrics_card(property_id, property_name, ads_account_id, start_date, end_date):
     """Display ROI metrics card for the selected hotel with enhanced Google Ads data"""
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -584,7 +586,7 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                     'impressions': 'sum'
                 }).reset_index()
                 
-                # Add campaign type identification - FIXED VERSION
+                # Add campaign type identification
                 def get_campaign_type(name):
                     """Better campaign type identification"""
                     name_lower = str(name).lower()
@@ -606,8 +608,7 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                     elif 'smart' in name_lower:
                         return 'Smart'
                     else:
-                        # Debug: show what campaign names are being classified as 'Other'
-                        return f'Other ({name})'
+                        return 'Other'
                 
                 spend_breakdown['type'] = spend_breakdown['campaign_name'].apply(get_campaign_type)
             else:
@@ -700,41 +701,55 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     st.markdown("### 🔍 Google Ads Spend Breakdown by Campaign (Cross Network & Paid Search Only)")
     
     if not spend_breakdown.empty and all(col in spend_breakdown.columns for col in ['cost', 'clicks', 'impressions', 'type']):
-        # First show all campaign types for debugging
-        st.write("**All Campaign Types Found:**")
-        st.write(spend_breakdown['type'].value_counts())
-        
-        # Filter for only Performance Max (Cross Network) and Paid Search campaigns
         # Filter for only Performance Max (Cross Network) and Paid Search campaigns
         filtered_breakdown = spend_breakdown[
             spend_breakdown['type'].str.contains('Performance Max|Paid Search')
         ].copy()
         
         if not filtered_breakdown.empty:
-            # For simplicity, distribute total purchases proportionally by spend
-            total_filtered_spend = filtered_breakdown['cost'].sum()
+            # Fetch actual purchases from GA4 for each campaign instead of proportional distribution
+            campaign_purchases = {}
+            campaign_revenue = {}
             
-            if total_filtered_spend > 0:
-                # Calculate share of total spend for each campaign
-                filtered_breakdown['spend_share'] = filtered_breakdown['cost'] / total_filtered_spend
-                # Distribute purchases proportionally (using GA4 purchases, not Google Ads conversions)
-                filtered_breakdown['purchases'] = filtered_breakdown['spend_share'] * total_purchases
-            else:
-                filtered_breakdown['purchases'] = 0
+            for _, campaign_row in filtered_breakdown.iterrows():
+                campaign_name = campaign_row['campaign_name']
+                with st.spinner(f"Fetching GA4 purchases for {campaign_name}..."):
+                    ga_campaign_data = get_purchases_by_campaign(
+                        property_id, campaign_name, start_date, end_date
+                    )
+                    campaign_purchases[campaign_name] = ga_campaign_data['purchases'].sum() if not ga_campaign_data.empty else 0
+                    campaign_revenue[campaign_name] = ga_campaign_data['revenue'].sum() if not ga_campaign_data.empty else 0
             
-            # Calculate metrics using GA purchases, not Google Ads conversions
+            # Add the actual GA4 purchase and revenue data to the breakdown
+            filtered_breakdown['purchases'] = filtered_breakdown['campaign_name'].map(campaign_purchases)
+            filtered_breakdown['revenue'] = filtered_breakdown['campaign_name'].map(campaign_revenue)
+            
+            # Calculate metrics using actual GA4 data
             filtered_breakdown['CTR'] = (filtered_breakdown['clicks'] / filtered_breakdown['impressions']) * 100
-            filtered_breakdown['CPC'] = filtered_breakdown['cost'] / filtered_breakdown['clicks']
-            filtered_breakdown['CPA'] = filtered_breakdown['cost'] / filtered_breakdown['purchases']
-            filtered_breakdown['ROAS'] = (total_revenue * filtered_breakdown['spend_share']) / filtered_breakdown['cost']
+            filtered_breakdown['CPC'] = np.where(
+                filtered_breakdown['clicks'] > 0,
+                filtered_breakdown['cost'] / filtered_breakdown['clicks'],
+                0
+            )
+            filtered_breakdown['CPA'] = np.where(
+                filtered_breakdown['purchases'] > 0,
+                filtered_breakdown['cost'] / filtered_breakdown['purchases'],
+                0
+            )
+            filtered_breakdown['ROAS'] = np.where(
+                filtered_breakdown['cost'] > 0,
+                filtered_breakdown['revenue'] / filtered_breakdown['cost'],
+                0
+            )
+            filtered_breakdown['% of Total Spend'] = (filtered_breakdown['cost'] / total_spend) * 100
             
             # Replace infinities and NaN with 0
             filtered_breakdown = filtered_breakdown.replace([np.inf, -np.inf], np.nan).fillna(0)
             
-            # Format the table
+            # Format the table with the new revenue column
             display_columns = [
                 'campaign_name', 'type', 'cost', 'clicks', 'impressions', 
-                'purchases', 'CTR', 'CPC', 'CPA', 'ROAS', '% of Total Spend'
+                'purchases', 'revenue', 'CTR', 'CPC', 'CPA', 'ROAS', '% of Total Spend'
             ]
             
             # Ensure all columns exist
@@ -749,6 +764,7 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                     'clicks': 'Clicks',
                     'impressions': 'Impressions',
                     'purchases': 'Purchases',
+                    'revenue': 'Revenue (£)',
                     'CTR': 'CTR (%)',
                     'CPC': 'CPC (£)',
                     'CPA': 'CPA (£)',
@@ -761,6 +777,7 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                     'Clicks': '{:,.0f}',
                     'Impressions': '{:,.0f}',
                     'Purchases': '{:,.0f}',
+                    'Revenue (£)': '£{:,.2f}',
                     'CTR (%)': '{:.2f}%',
                     'CPC (£)': '£{:,.2f}',
                     'CPA (£)': '£{:,.2f}',
@@ -768,7 +785,7 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                     '% of Spend': '{:.1f}%'
                 })
                 .background_gradient(cmap='Blues', subset=['Spend (£)', 'Impressions'])
-                .background_gradient(cmap='Greens', subset=['Clicks', 'Purchases'])
+                .background_gradient(cmap='Greens', subset=['Clicks', 'Purchases', 'Revenue (£)'])
                 .background_gradient(cmap='Reds', subset=['CPC (£)', 'CPA (£)'])
                 .background_gradient(cmap='Purples', subset=['ROAS'])
             )
@@ -781,12 +798,14 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
             
             total_filtered_spend = filtered_breakdown['cost'].sum()
             total_filtered_purchases = filtered_breakdown['purchases'].sum()
+            total_filtered_revenue = filtered_breakdown['revenue'].sum()
             total_filtered_impressions = filtered_breakdown['impressions'].sum()
             total_filtered_clicks = filtered_breakdown['clicks'].sum()
             
             avg_ctr = (total_filtered_clicks / total_filtered_impressions) * 100 if total_filtered_impressions > 0 else 0
             avg_cpc = total_filtered_spend / total_filtered_clicks if total_filtered_clicks > 0 else 0
             avg_cpa = total_filtered_spend / total_filtered_purchases if total_filtered_purchases > 0 else 0
+            avg_roas = total_filtered_revenue / total_filtered_spend if total_filtered_spend > 0 else 0
             
             with col1:
                 st.metric("Total Filtered Spend", f"£{total_filtered_spend:,.2f}")
@@ -3766,6 +3785,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
