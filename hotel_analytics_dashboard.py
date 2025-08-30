@@ -2724,7 +2724,7 @@ def main():
     total_spend = 0
     
     # In the main function, update the overall hotel performance section:
-    with st.spinner("Calculating overall performance..."):
+        with st.spinner("Calculating overall performance..."):
         # Initialize all variables before the loop
         total_revenue = 0
         total_spend = 0
@@ -2740,6 +2740,16 @@ def main():
             "308381004": "5668854094"    # Holiday Inn Leicester Wiston
         }
         
+        # Define property ID to name mapping
+        property_id_to_name = {
+            "308398104": "Mercure Hyde Park",
+            "308376609": "Hotel Indigo Paddington", 
+            "308414291": "Mercure London Paddington",
+            "308386258": "Mercure Nottingham City Centre",
+            "471474513": "Best Western Sheffield",
+            "308381004": "Holiday Inn Leicester Wigston"
+        }
+        
         # Get current month range for calculations
         current_date = datetime.now()
         start_of_month = current_date.replace(day=1).strftime("%Y-%m-%d")
@@ -2750,8 +2760,11 @@ def main():
         total_properties = len(property_to_ads_mapping)
         
         for i, (property_id, ads_account_id) in enumerate(property_to_ads_mapping.items()):
+            # Get property name for display
+            property_name = property_id_to_name.get(property_id, f"Property {property_id}")
+            
             # Update progress
-            progress_bar.progress((i + 1) / total_properties, text=f"Processing {list(property_options.keys())[list(property_options.values()).index(property_id)]}...")
+            progress_bar.progress((i + 1) / total_properties, text=f"Processing {property_name}...")
             
             try:
                 # Get GA revenue and purchase data from paid sources
@@ -2776,7 +2789,7 @@ def main():
                     st.warning(f"Failed to connect to Google Ads for account {ads_account_id}")
                     
             except Exception as e:
-                st.error(f"Error processing property {property_id}: {str(e)}")
+                st.error(f"Error processing property {property_name} ({property_id}): {str(e)}")
                 continue
         
         # Complete progress bar
@@ -2832,8 +2845,7 @@ def main():
             <div style="font-size: 12px; color: #666;">£{profit:,.2f} Profit</div>
         </div>
         """, unsafe_allow_html=True)
-
-    
+        
     st.caption(f"Data for {current_date.strftime('%B %Y')}. ROI = Revenue / Ad Spend")
     st.markdown('</div>', unsafe_allow_html=True)
      
@@ -3670,6 +3682,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
