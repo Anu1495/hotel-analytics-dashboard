@@ -584,14 +584,18 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                     'impressions': 'sum'
                 }).reset_index()
                 
-                # Add campaign type identification
+                # Add campaign type identification - FIXED VERSION
                 def get_campaign_type(name):
                     """Better campaign type identification"""
-                    name_lower = name.lower()
+                    name_lower = str(name).lower()
                     
-                    if 'performance max' in name_lower or 'pmax' in name_lower:
-                        return 'PMax'
-                    elif 'search' in name_lower or 'brand' in name_lower or 'non-brand' in name_lower:
+                    # Check for Performance Max/Cross Network first
+                    if ('performance max' in name_lower or 'pmax' in name_lower or 
+                        'cross network' in name_lower or 'p-max' in name_lower):
+                        return 'Performance Max'
+                    # Then check for Paid Search
+                    elif ('search' in name_lower or 'brand' in name_lower or 
+                          'non-brand' in name_lower or 'non brand' in name_lower):
                         return 'Paid Search'
                     elif 'display' in name_lower or 'gdn' in name_lower:
                         return 'Display'
@@ -602,7 +606,8 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                     elif 'smart' in name_lower:
                         return 'Smart'
                     else:
-                        return 'Other'
+                        # Debug: show what campaign names are being classified as 'Other'
+                        return f'Other ({name})'
                 
                 spend_breakdown['type'] = spend_breakdown['campaign_name'].apply(get_campaign_type)
             else:
@@ -691,14 +696,17 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
         </div>
         """, unsafe_allow_html=True)
     
-
     # Display spend breakdown with campaign type filter
     st.markdown("### 🔍 Google Ads Spend Breakdown by Campaign (Cross Network & Paid Search Only)")
     
     if not spend_breakdown.empty and all(col in spend_breakdown.columns for col in ['cost', 'clicks', 'impressions', 'type']):
-        # Filter for only Cross Network (PMax) and Paid Search campaigns
+        # First show all campaign types for debugging
+        st.write("**All Campaign Types Found:**")
+        st.write(spend_breakdown['type'].value_counts())
+        
+        # Filter for only Performance Max (Cross Network) and Paid Search campaigns
         filtered_breakdown = spend_breakdown[
-            spend_breakdown['type'].isin(['PMax', 'Paid Search'])
+            spend_breakdown['type'].str.contains('Performance Max|Paid Search')
         ].copy()
         
         if not filtered_breakdown.empty:
@@ -790,8 +798,9 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                 st.metric("Avg CPC", f"£{avg_cpc:.2f}")
                 
         else:
-            st.warning("No Cross Network or Paid Search campaigns found. Available campaign types:")
-            st.write(spend_breakdown['type'].value_counts())
+            st.warning("No Performance Max or Paid Search campaigns found after filtering.")
+            st.write("All campaigns before filtering:")
+            st.dataframe(spend_breakdown[['campaign_name', 'type', 'cost']])
     else:
         st.warning("No campaign data available or missing required columns")
         if not spend_breakdown.empty:
@@ -3756,6 +3765,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
