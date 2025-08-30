@@ -2724,7 +2724,7 @@ def main():
     total_spend = 0
     
     # In the main function, update the overall hotel performance section:
-        with st.spinner("Calculating overall performance..."):
+    with st.spinner("Calculating overall performance..."):
         # Initialize all variables before the loop
         total_revenue = 0
         total_spend = 0
@@ -3682,6 +3682,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
