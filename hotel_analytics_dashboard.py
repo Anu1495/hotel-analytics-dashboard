@@ -676,103 +676,100 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
         </div>
         """, unsafe_allow_html=True)
     
-# In the display_roi_metrics_card function, replace the spend breakdown section:
 
     # Display spend breakdown with campaign type filter - Only Cross Network and Paid Search
     st.markdown("### 🔍 Google Ads Spend Breakdown by Campaign (Cross Network & Paid Search Only)")
     
-    if not spend_breakdown.empty:
+    if not spend_breakdown.empty and 'impressions' in spend_breakdown.columns:
         # Filter for only Cross Network and Paid Search campaigns
         filtered_breakdown = spend_breakdown[
             spend_breakdown['type'].isin(['PMax', 'Paid Search'])
         ].copy()
         
-        # Fetch GA4 purchase data for each campaign to get purchase counts
-        campaign_purchases = {}
-        for campaign_name in filtered_breakdown['campaign_name'].unique():
-            try:
-                # You'll need to implement a function to get purchases by campaign
-                # This is a placeholder - you'll need to create get_purchases_by_campaign()
-                campaign_purchase_data = get_purchases_by_campaign(
-                    property_id, campaign_name, start_date, end_date
-                )
-                campaign_purchases[campaign_name] = campaign_purchase_data['purchases'].sum() if not campaign_purchase_data.empty else 0
-            except:
-                campaign_purchases[campaign_name] = 0
-        
-        # Add purchase data to the breakdown
-        filtered_breakdown['purchases'] = filtered_breakdown['campaign_name'].map(campaign_purchases)
-        
-        # Calculate metrics
-        filtered_breakdown['% of Spend'] = (filtered_breakdown['cost'] / total_spend) * 100
-        filtered_breakdown['% of Clicks'] = (filtered_breakdown['clicks'] / total_clicks) * 100 if total_clicks > 0 else 0
-        filtered_breakdown['CTR'] = (filtered_breakdown['clicks'] / filtered_breakdown['impressions']) * 100
-        filtered_breakdown['CPC'] = filtered_breakdown['cost'] / filtered_breakdown['clicks']
-        filtered_breakdown['CPA'] = filtered_breakdown['cost'] / filtered_breakdown['purchases']
-        filtered_breakdown['ROAS'] = (filtered_breakdown['purchases'] * average_order_value) / filtered_breakdown['cost']  # You'll need average_order_value
-        
-        # Replace infinities and NaN with 0
-        filtered_breakdown = filtered_breakdown.replace([np.inf, -np.inf], np.nan).fillna(0)
-        
-        # Format the table
-        styled_breakdown = (
-            filtered_breakdown[[
-                'campaign_name', 'type', 'cost', 'clicks', 'impressions', 
-                'purchases', 'CTR', 'CPC', 'CPA', 'ROAS', '% of Spend'
-            ]]
-            .rename(columns={
-                'campaign_name': 'Campaign Name',
-                'type': 'Campaign Type',
-                'cost': 'Spend (£)',
-                'clicks': 'Clicks',
-                'impressions': 'Impressions',
-                'purchases': 'Purchases',
-                'CTR': 'CTR (%)',
-                'CPC': 'CPC (£)',
-                'CPA': 'CPA (£)',
-                'ROAS': 'ROAS',
-                '% of Spend': '% of Spend'
-            })
-            .sort_values('Spend (£)', ascending=False)
-            .style.format({
-                'Spend (£)': '£{:,.2f}',
-                'Clicks': '{:,.0f}',
-                'Impressions': '{:,.0f}',
-                'Purchases': '{:,.0f}',
-                'CTR (%)': '{:.2f}%',
-                'CPC (£)': '£{:,.2f}',
-                'CPA (£)': '£{:,.2f}',
-                'ROAS': '{:.2f}',
-                '% of Spend': '{:.1f}%'
-            })
-            .background_gradient(cmap='Blues', subset=['Spend (£)', 'Impressions'])
-            .background_gradient(cmap='Greens', subset=['Clicks', 'Purchases'])
-            .background_gradient(cmap='Reds', subset=['CPC (£)', 'CPA (£)'])
-            .background_gradient(cmap='Purples', subset=['ROAS'])
-        )
-        
-        st.dataframe(styled_breakdown, height=400, use_container_width=True)
-        
-        # Add summary statistics
-        st.markdown("**📊 Summary Statistics**")
-        col1, col2, col3, col4 = st.columns(4)
-        
-        total_filtered_spend = filtered_breakdown['cost'].sum()
-        total_filtered_purchases = filtered_breakdown['purchases'].sum()
-        avg_ctr = (filtered_breakdown['clicks'].sum() / filtered_breakdown['impressions'].sum()) * 100
-        avg_cpc = filtered_breakdown['cost'].sum() / filtered_breakdown['clicks'].sum()
-        
-        with col1:
-            st.metric("Total Filtered Spend", f"£{total_filtered_spend:,.2f}")
-        with col2:
-            st.metric("Total Purchases", f"{total_filtered_purchases:,.0f}")
-        with col3:
-            st.metric("Avg CTR", f"{avg_ctr:.2f}%")
-        with col4:
-            st.metric("Avg CPC", f"£{avg_cpc:.2f}")
+        if not filtered_breakdown.empty:
+            # For simplicity, let's use the total purchases and distribute them proportionally
+            # This is a simplified approach since campaign-level purchase tracking in GA4 can be complex
+            total_filtered_spend = filtered_breakdown['cost'].sum()
             
+            # Distribute total purchases proportionally by spend
+            if total_filtered_spend > 0:
+                filtered_breakdown['purchases'] = (filtered_breakdown['cost'] / total_filtered_spend) * total_purchases
+            else:
+                filtered_breakdown['purchases'] = 0
+            
+            # Calculate metrics
+            filtered_breakdown['% of Spend'] = (filtered_breakdown['cost'] / total_spend) * 100
+            filtered_breakdown['% of Clicks'] = (filtered_breakdown['clicks'] / total_clicks) * 100 if total_clicks > 0 else 0
+            filtered_breakdown['CTR'] = (filtered_breakdown['clicks'] / filtered_breakdown['impressions']) * 100
+            filtered_breakdown['CPC'] = filtered_breakdown['cost'] / filtered_breakdown['clicks']
+            filtered_breakdown['CPA'] = filtered_breakdown['cost'] / filtered_breakdown['purchases']
+            
+            # Replace infinities and NaN with 0
+            filtered_breakdown = filtered_breakdown.replace([np.inf, -np.inf], np.nan)
+            filtered_breakdown = filtered_breakdown.fillna(0)
+            
+            # Format the table
+            styled_breakdown = (
+                filtered_breakdown[[
+                    'campaign_name', 'type', 'cost', 'clicks', 'impressions', 
+                    'purchases', 'CTR', 'CPC', 'CPA', '% of Spend'
+                ]]
+                .rename(columns={
+                    'campaign_name': 'Campaign Name',
+                    'type': 'Campaign Type',
+                    'cost': 'Spend (£)',
+                    'clicks': 'Clicks',
+                    'impressions': 'Impressions',
+                    'purchases': 'Purchases',
+                    'CTR': 'CTR (%)',
+                    'CPC': 'CPC (£)',
+                    'CPA': 'CPA (£)',
+                    '% of Spend': '% of Spend'
+                })
+                .sort_values('Spend (£)', ascending=False)
+                .style.format({
+                    'Spend (£)': '£{:,.2f}',
+                    'Clicks': '{:,.0f}',
+                    'Impressions': '{:,.0f}',
+                    'Purchases': '{:,.0f}',
+                    'CTR (%)': '{:.2f}%',
+                    'CPC (£)': '£{:,.2f}',
+                    'CPA (£)': '£{:,.2f}',
+                    '% of Spend': '{:.1f}%'
+                })
+                .background_gradient(cmap='Blues', subset=['Spend (£)', 'Impressions'])
+                .background_gradient(cmap='Greens', subset=['Clicks', 'Purchases'])
+                .background_gradient(cmap='Reds', subset=['CPC (£)', 'CPA (£)'])
+            )
+            
+            st.dataframe(styled_breakdown, height=400, use_container_width=True)
+            
+            # Add summary statistics
+            st.markdown("**📊 Summary Statistics**")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            total_filtered_spend = filtered_breakdown['cost'].sum()
+            total_filtered_purchases = filtered_breakdown['purchases'].sum()
+            total_filtered_impressions = filtered_breakdown['impressions'].sum()
+            total_filtered_clicks = filtered_breakdown['clicks'].sum()
+            
+            avg_ctr = (total_filtered_clicks / total_filtered_impressions) * 100 if total_filtered_impressions > 0 else 0
+            avg_cpc = total_filtered_spend / total_filtered_clicks if total_filtered_clicks > 0 else 0
+            avg_cpa = total_filtered_spend / total_filtered_purchases if total_filtered_purchases > 0 else 0
+            
+            with col1:
+                st.metric("Total Filtered Spend", f"£{total_filtered_spend:,.2f}")
+            with col2:
+                st.metric("Total Purchases", f"{total_filtered_purchases:,.0f}")
+            with col3:
+                st.metric("Avg CTR", f"{avg_ctr:.2f}%")
+            with col4:
+                st.metric("Avg CPC", f"£{avg_cpc:.2f}")
+                
+        else:
+            st.warning("No Cross Network or Paid Search campaign data available")
     else:
-        st.warning("No Cross Network or Paid Search campaign data available")
+        st.warning("No campaign data available or missing impressions data")
 def fetch_ga4_paid_revenue(property_id, start_date, end_date):
     """Fetch GA4 revenue and purchase conversion data from paid sources only (Cross Network and Paid Search)"""
     try:
@@ -3729,6 +3726,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
