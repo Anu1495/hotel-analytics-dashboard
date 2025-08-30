@@ -2667,13 +2667,18 @@ def main():
     
     # In the main function, update the overall hotel performance section:
     with st.spinner("Calculating overall performance..."):
+        # Initialize all variables before the loop
+        total_revenue = 0
+        total_spend = 0
+        total_conversions = 0  # Initialize this variable
+        
         for property_id, ads_account_id in property_to_ads_mapping.items():
             # Get GA revenue and conversions from paid sources
             ga_data = fetch_ga4_paid_revenue(property_id, start_of_month, end_of_month)
             property_revenue = ga_data['revenue'].sum() if not ga_data.empty else 0
-            property_conversions = ga_data['conversions'].sum() if not ga_data.empty else 0  # Add this line
+            property_conversions = ga_data['conversions'].sum() if not ga_data.empty else 0
             total_revenue += property_revenue
-            total_conversions += property_conversions  # Add this line
+            total_conversions += property_conversions
             
             # Get Google Ads spend
             ads_config = GoogleAdsConfig(customer_id=ads_account_id)
@@ -2687,8 +2692,23 @@ def main():
                 property_spend = ads_data['cost'].sum() if not ads_data.empty else 0
                 total_spend += property_spend
     
-    # Then add a conversion metric to the display:
-    col1, col2, col3, col4 = st.columns(4)  # Change to 4 columns
+    # Calculate ROI metrics
+    if total_spend > 0:
+        overall_roi = total_revenue / total_spend
+        profit = total_revenue - total_spend
+        roi_class = "Excellent" if overall_roi >= 26 else "Great" if overall_roi >= 20 else "Good" if overall_roi >= 15 else "Ok" if overall_roi >= 10 else "Needs Improvement"
+        roi_color = "#06D6A0" if overall_roi >= 15 else "#FFD166" if overall_roi >= 10 else "#EA4335"
+    else:
+        overall_roi = 0
+        profit = total_revenue
+        roi_class = "N/A (No Spend)"
+        roi_color = "#9E9E9E"
+    
+    # Calculate CPA
+    cpa = (total_spend / total_conversions) if total_conversions > 0 else 0
+    
+    # Display KPIs in columns
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric(
@@ -2705,8 +2725,6 @@ def main():
         )
     
     with col3:
-        # Calculate CPA
-        cpa = (total_spend / total_conversions) if total_conversions > 0 else 0
         st.metric(
             "Total Conversions (All Hotels)",
             f"{total_conversions:,.0f}",
@@ -2724,6 +2742,8 @@ def main():
             <div style="font-size: 12px; color: #666;">£{profit:,.2f} Profit</div>
         </div>
         """, unsafe_allow_html=True)
+
+st.caption(f"Data for {current_date.strftime('%B %Y')}. ROI = Revenue / Ad Spend")
     
     st.caption(f"Data for {current_date.strftime('%B %Y')}. ROI = Revenue / Ad Spend")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -3561,4 +3581,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
