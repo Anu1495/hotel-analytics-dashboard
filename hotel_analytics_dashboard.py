@@ -705,6 +705,7 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
         st.write(spend_breakdown['type'].value_counts())
         
         # Filter for only Performance Max (Cross Network) and Paid Search campaigns
+        # Filter for only Performance Max (Cross Network) and Paid Search campaigns
         filtered_breakdown = spend_breakdown[
             spend_breakdown['type'].str.contains('Performance Max|Paid Search')
         ].copy()
@@ -716,13 +717,12 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
             if total_filtered_spend > 0:
                 # Calculate share of total spend for each campaign
                 filtered_breakdown['spend_share'] = filtered_breakdown['cost'] / total_filtered_spend
-                # Distribute purchases proportionally
+                # Distribute purchases proportionally (using GA4 purchases, not Google Ads conversions)
                 filtered_breakdown['purchases'] = filtered_breakdown['spend_share'] * total_purchases
             else:
                 filtered_breakdown['purchases'] = 0
             
-            # Calculate metrics
-            filtered_breakdown['% of Total Spend'] = (filtered_breakdown['cost'] / total_spend) * 100
+            # Calculate metrics using GA purchases, not Google Ads conversions
             filtered_breakdown['CTR'] = (filtered_breakdown['clicks'] / filtered_breakdown['impressions']) * 100
             filtered_breakdown['CPC'] = filtered_breakdown['cost'] / filtered_breakdown['clicks']
             filtered_breakdown['CPA'] = filtered_breakdown['cost'] / filtered_breakdown['purchases']
@@ -809,6 +809,7 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     # Add date range info
     st.caption(f"Date range: {start_date} to {end_date}")
     st.markdown('</div>', unsafe_allow_html=True)
+# In the fetch_ga4_paid_revenue function, ensure it's filtering for paid sources:
 def fetch_ga4_paid_revenue(property_id, start_date, end_date):
     """Fetch GA4 revenue and purchase conversion data from paid sources only (Cross Network and Paid Search)"""
     try:
@@ -3765,6 +3766,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
