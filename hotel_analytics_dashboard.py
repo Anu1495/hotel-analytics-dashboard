@@ -2742,8 +2742,6 @@ def main():
             <div style="font-size: 12px; color: #666;">£{profit:,.2f} Profit</div>
         </div>
         """, unsafe_allow_html=True)
-
-st.caption(f"Data for {current_date.strftime('%B %Y')}. ROI = Revenue / Ad Spend")
     
     st.caption(f"Data for {current_date.strftime('%B %Y')}. ROI = Revenue / Ad Spend")
     st.markdown('</div>', unsafe_allow_html=True)
@@ -3581,5 +3579,6 @@ st.caption(f"Data for {current_date.strftime('%B %Y')}. ROI = Revenue / Ad Spend
 
 if __name__ == "__main__":
     main()
+
 
 
