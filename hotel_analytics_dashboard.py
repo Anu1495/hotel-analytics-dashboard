@@ -699,88 +699,85 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
         """, unsafe_allow_html=True)
     
     # Display spend breakdown with campaign type filter
-    st.markdown("### 🔍 Google Ads Spend Breakdown by Campaign (Cross Network & Paid Search Only)")
+    st.markdown("### 🔍 Google Ads Spend Breakdown by Campaign Type")
     
     if not spend_breakdown.empty and all(col in spend_breakdown.columns for col in ['cost', 'clicks', 'impressions', 'type']):
-        # First show all campaign types for debugging
-        st.write("**All Campaign Types Found:**")
-        st.write(spend_breakdown['type'].value_counts())
-        
         # Filter for only Performance Max (Cross Network) and Paid Search campaigns
         filtered_breakdown = spend_breakdown[
             spend_breakdown['type'].str.contains('Performance Max|Paid Search')
         ].copy()
         
         if not filtered_breakdown.empty:
-            # Fetch actual purchases from GA4 for each campaign instead of proportional distribution
-            campaign_purchases = {}
-            campaign_revenue = {}
+            # Group by campaign type to get aggregated data
+            type_breakdown = filtered_breakdown.groupby('type').agg({
+                'cost': 'sum',
+                'clicks': 'sum',
+                'impressions': 'sum'
+            }).reset_index()
             
-            # Create progress bar for fetching campaign data
-            progress_bar = st.progress(0)
-            total_campaigns = len(filtered_breakdown)
-            
-            for i, (_, campaign_row) in enumerate(filtered_breakdown.iterrows()):
-                campaign_name = campaign_row['campaign_name']
-                progress_bar.progress((i + 1) / total_campaigns, text=f"Fetching GA4 data for {campaign_name}...")
+            # Fetch GA4 purchases by traffic source (Cross Network vs Paid Search)
+            with st.spinner("Fetching GA4 purchases by traffic source..."):
+                # Get Cross Network purchases (Performance Max)
+                cross_network_data = fetch_ga4_paid_revenue_by_source(
+                    property_id, start_date, end_date, source_filter="google / cpc"
+                )
+                cross_network_purchases = cross_network_data['purchases'].sum() if not cross_network_data.empty else 0
+                cross_network_revenue = cross_network_data['revenue'].sum() if not cross_network_data.empty else 0
                 
-                with st.spinner(f"Fetching GA4 purchases for {campaign_name}..."):
-                    ga_campaign_data = get_purchases_by_campaign(
-                        property_id, campaign_name, start_date, end_date
-                    )
-                    campaign_purchases[campaign_name] = ga_campaign_data['purchases'].sum() if not ga_campaign_data.empty else 0
-                    campaign_revenue[campaign_name] = ga_campaign_data['revenue'].sum() if not ga_campaign_data.empty else 0
+                # Get Paid Search purchases
+                paid_search_data = fetch_ga4_paid_revenue_by_source(
+                    property_id, start_date, end_date, source_filter="google / paidsearch"
+                )
+                paid_search_purchases = paid_search_data['purchases'].sum() if not paid_search_data.empty else 0
+                paid_search_revenue = paid_search_data['revenue'].sum() if not paid_search_data.empty else 0
             
-            # Complete progress bar
-            progress_bar.progress(1.0, text="Data fetch complete!")
-            
-            # Add the actual GA4 purchase and revenue data to the breakdown
-            filtered_breakdown['purchases'] = filtered_breakdown['campaign_name'].map(campaign_purchases)
-            filtered_breakdown['revenue'] = filtered_breakdown['campaign_name'].map(campaign_revenue)
+            # Add GA4 purchase and revenue data to the type breakdown
+            type_breakdown['purchases'] = type_breakdown['type'].apply(
+                lambda x: cross_network_purchases if x == 'Performance Max' else paid_search_purchases
+            )
+            type_breakdown['revenue'] = type_breakdown['type'].apply(
+                lambda x: cross_network_revenue if x == 'Performance Max' else paid_search_revenue
+            )
             
             # Calculate metrics using actual GA4 data
-            filtered_breakdown['CTR'] = np.where(
-                filtered_breakdown['impressions'] > 0,
-                (filtered_breakdown['clicks'] / filtered_breakdown['impressions']) * 100,
+            type_breakdown['CTR'] = np.where(
+                type_breakdown['impressions'] > 0,
+                (type_breakdown['clicks'] / type_breakdown['impressions']) * 100,
                 0
             )
-            filtered_breakdown['CPC'] = np.where(
-                filtered_breakdown['clicks'] > 0,
-                filtered_breakdown['cost'] / filtered_breakdown['clicks'],
+            type_breakdown['CPC'] = np.where(
+                type_breakdown['clicks'] > 0,
+                type_breakdown['cost'] / type_breakdown['clicks'],
                 0
             )
-            filtered_breakdown['CPA'] = np.where(
-                filtered_breakdown['purchases'] > 0,
-                filtered_breakdown['cost'] / filtered_breakdown['purchases'],
+            type_breakdown['CPA'] = np.where(
+                type_breakdown['purchases'] > 0,
+                type_breakdown['cost'] / type_breakdown['purchases'],
                 0
             )
-            filtered_breakdown['ROAS'] = np.where(
-                filtered_breakdown['cost'] > 0,
-                filtered_breakdown['revenue'] / filtered_breakdown['cost'],
+            type_breakdown['ROAS'] = np.where(
+                type_breakdown['cost'] > 0,
+                type_breakdown['revenue'] / type_breakdown['cost'],
                 0
             )
-            filtered_breakdown['% of Total Spend'] = np.where(
+            type_breakdown['% of Total Spend'] = np.where(
                 total_spend > 0,
-                (filtered_breakdown['cost'] / total_spend) * 100,
+                (type_breakdown['cost'] / total_spend) * 100,
                 0
             )
             
             # Replace infinities and NaN with 0
-            filtered_breakdown = filtered_breakdown.replace([np.inf, -np.inf], np.nan).fillna(0)
+            type_breakdown = type_breakdown.replace([np.inf, -np.inf], np.nan).fillna(0)
             
-            # Format the table with the new revenue column
+            # Format the table
             display_columns = [
-                'campaign_name', 'type', 'cost', 'clicks', 'impressions', 
+                'type', 'cost', 'clicks', 'impressions', 
                 'purchases', 'revenue', 'CTR', 'CPC', 'CPA', 'ROAS', '% of Total Spend'
             ]
             
-            # Ensure all columns exist
-            available_columns = [col for col in display_columns if col in filtered_breakdown.columns]
-            
             styled_breakdown = (
-                filtered_breakdown[available_columns]
+                type_breakdown[display_columns]
                 .rename(columns={
-                    'campaign_name': 'Campaign Name',
                     'type': 'Campaign Type',
                     'cost': 'Spend (£)',
                     'clicks': 'Clicks',
@@ -812,17 +809,38 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                 .background_gradient(cmap='Purples', subset=['ROAS'])
             )
             
-            st.dataframe(styled_breakdown, height=400, use_container_width=True)
+            st.dataframe(styled_breakdown, height=200, use_container_width=True)
+            
+            # Show individual campaigns for reference
+            st.markdown("**Individual Campaigns**")
+            st.dataframe(
+                filtered_breakdown[['campaign_name', 'type', 'cost', 'clicks', 'impressions']]
+                .rename(columns={
+                    'campaign_name': 'Campaign Name',
+                    'type': 'Campaign Type',
+                    'cost': 'Spend (£)',
+                    'clicks': 'Clicks',
+                    'impressions': 'Impressions'
+                })
+                .sort_values('Spend (£)', ascending=False)
+                .style.format({
+                    'Spend (£)': '£{:,.2f}',
+                    'Clicks': '{:,.0f}',
+                    'Impressions': '{:,.0f}'
+                }),
+                height=300,
+                use_container_width=True
+            )
             
             # Add summary statistics
             st.markdown("**📊 Summary Statistics**")
             col1, col2, col3, col4 = st.columns(4)
             
-            total_filtered_spend = filtered_breakdown['cost'].sum()
-            total_filtered_purchases = filtered_breakdown['purchases'].sum()
-            total_filtered_revenue = filtered_breakdown['revenue'].sum()
-            total_filtered_impressions = filtered_breakdown['impressions'].sum()
-            total_filtered_clicks = filtered_breakdown['clicks'].sum()
+            total_filtered_spend = type_breakdown['cost'].sum()
+            total_filtered_purchases = type_breakdown['purchases'].sum()
+            total_filtered_revenue = type_breakdown['revenue'].sum()
+            total_filtered_impressions = type_breakdown['impressions'].sum()
+            total_filtered_clicks = type_breakdown['clicks'].sum()
             
             avg_ctr = (total_filtered_clicks / total_filtered_impressions) * 100 if total_filtered_impressions > 0 else 0
             avg_cpc = total_filtered_spend / total_filtered_clicks if total_filtered_clicks > 0 else 0
@@ -839,17 +857,66 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                 st.metric("Avg CPC", f"£{avg_cpc:.2f}")
                 
         else:
-            st.warning("No Performance Max or Paid Search campaigns found after filtering.")
-            st.write("All campaigns before filtering:")
+            st.warning("No Performance Max or Paid Search campaigns found.")
+            st.write("All campaigns:")
             st.dataframe(spend_breakdown[['campaign_name', 'type', 'cost']])
     else:
         st.warning("No campaign data available or missing required columns")
-        if not spend_breakdown.empty:
-            st.write("Available columns:", spend_breakdown.columns.tolist())
     
     # Add date range info
     st.caption(f"Date range: {start_date} to {end_date}")
     st.markdown('</div>', unsafe_allow_html=True)
+
+
+# Add this helper function to fetch GA4 data by source
+def fetch_ga4_paid_revenue_by_source(property_id, start_date, end_date, source_filter):
+    """Fetch GA4 revenue and purchase conversion data for specific paid sources"""
+    try:
+        client = get_ga_client()
+        
+        # Filter for specific paid traffic sources and purchase events
+        request = RunReportRequest(
+            property=f"properties/{property_id}",
+            dimensions=[Dimension(name="date")],
+            metrics=[
+                Metric(name="purchaseRevenue"),
+                Metric(name="eventCount")
+            ],
+            date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
+            dimension_filter=FilterExpression(
+                and_group=FilterExpressionList(
+                    expressions=[
+                        # Filter for specific paid traffic source
+                        FilterExpression(filter=Filter(
+                            field_name="sessionSourceMedium",
+                            string_filter=Filter.StringFilter(value=source_filter))),
+                        # Filter for purchase events only
+                        FilterExpression(filter=Filter(
+                            field_name="eventName",
+                            string_filter=Filter.StringFilter(value="purchase")))
+                    ]
+                )
+            ))
+        
+        response = client.run_report(request)
+        
+        data = []
+        for row in response.rows:
+            date = row.dimension_values[0].value
+            revenue = float(row.metric_values[0].value)
+            purchase_count = float(row.metric_values[1].value)
+            
+            data.append({
+                'date': date,
+                'revenue': revenue,
+                'purchases': purchase_count
+            })
+        
+        return pd.DataFrame(data)
+        
+    except Exception as e:
+        st.error(f"Failed to fetch GA4 paid purchase data for {source_filter}: {str(e)}")
+        return pd.DataFrame(columns=['date', 'revenue', 'purchases'])
 # In the fetch_ga4_paid_revenue function, ensure it's filtering for paid sources:
 def fetch_ga4_paid_revenue(property_id, start_date, end_date):
     """Fetch GA4 revenue and purchase conversion data from paid sources only (Cross Network and Paid Search)"""
@@ -3807,6 +3874,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
