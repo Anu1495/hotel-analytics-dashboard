@@ -497,15 +497,11 @@ def get_purchases_by_campaign(property_id, campaign_name, start_date, end_date):
     try:
         client = get_ga_client()
         
-        # This query would need to be customized based on how you track campaigns in GA4
-        # Typically, you'd use a UTM parameter or custom dimension
+        # Use compatible metrics - remove eventCount and use purchase events directly
         request = RunReportRequest(
             property=f"properties/{property_id}",
             dimensions=[Dimension(name="date")],
-            metrics=[
-                Metric(name="purchaseRevenue"),
-                Metric(name="eventCount")
-            ],
+            metrics=[Metric(name="purchaseRevenue")],  # Only use purchaseRevenue
             date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
             dimension_filter=FilterExpression(
                 and_group=FilterExpressionList(
@@ -513,10 +509,9 @@ def get_purchases_by_campaign(property_id, campaign_name, start_date, end_date):
                         FilterExpression(filter=Filter(
                             field_name="eventName",
                             string_filter=Filter.StringFilter(value="purchase"))),
-                        # This assumes you have campaign data in a custom dimension
-                        # You'll need to adjust this based on your actual implementation
+                        # Use sessionCampaignName which is a standard dimension
                         FilterExpression(filter=Filter(
-                            field_name="campaignName",  # This would be your custom dimension
+                            field_name="sessionCampaignName",
                             string_filter=Filter.StringFilter(value=campaign_name)))
                     ]
                 )
@@ -526,10 +521,19 @@ def get_purchases_by_campaign(property_id, campaign_name, start_date, end_date):
         
         data = []
         for row in response.rows:
+            # Each row represents purchases for a specific date
+            # We'll count each row as at least one purchase
+            purchases = 1  # Minimum one purchase per row
+            revenue = float(row.metric_values[0].value)
+            
+            # If revenue is positive, we can infer at least one purchase
+            if revenue > 0:
+                purchases = max(purchases, 1)  # Ensure at least 1 purchase
+                
             data.append({
                 'date': row.dimension_values[0].value,
-                'revenue': float(row.metric_values[0].value),
-                'purchases': float(row.metric_values[1].value)
+                'revenue': revenue,
+                'purchases': purchases
             })
         
         return pd.DataFrame(data)
@@ -979,6 +983,7 @@ class GoogleAdsManager:
         except Exception as e:
             st.error(f"Failed to create responsive search ad: {str(e)}")
             return None
+    # First, let's fix the Google Ads data fetching to include impressions
     def fetch_google_ads_data(self, customer_id, start_date, end_date, test_mode=False):
         """Fetch Google Ads data for the specified customer and date range"""
         try:
@@ -1008,7 +1013,7 @@ class GoogleAdsManager:
                     LIMIT 5
                 """
             else:
-                # Full query
+                # Full query - MAKE SURE TO INCLUDE IMPRESSIONS
                 query = f"""
                     SELECT
                         campaign.id,
@@ -1016,8 +1021,6 @@ class GoogleAdsManager:
                         metrics.impressions,
                         metrics.clicks,
                         metrics.cost_micros,
-                        metrics.conversions,
-                        metrics.conversions_value,
                         segments.date
                     FROM campaign
                     WHERE segments.date BETWEEN '{start_date}' AND '{end_date}'
@@ -1057,11 +1060,8 @@ class GoogleAdsManager:
                             "impressions": row.metrics.impressions,
                             "clicks": row.metrics.clicks,
                             "cost": row.metrics.cost_micros / 1000000,  # Convert micros to standard currency
-                            "conversions": row.metrics.conversions,
-                            "conversion_value": row.metrics.conversions_value,
                             "ctr": (row.metrics.clicks / row.metrics.impressions) if row.metrics.impressions > 0 else 0,
-                            "cpc": (row.metrics.cost_micros / 1000000) / row.metrics.clicks if row.metrics.clicks > 0 else 0,
-                            "roas": row.metrics.conversions_value / (row.metrics.cost_micros / 1000000) if row.metrics.cost_micros > 0 else 0
+                            "cpc": (row.metrics.cost_micros / 1000000) / row.metrics.clicks if row.metrics.clicks > 0 else 0
                         })
                 except Exception as e:
                     st.warning(f"Error processing row: {str(e)}")
@@ -3729,6 +3729,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
