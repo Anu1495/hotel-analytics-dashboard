@@ -554,11 +554,25 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     with col2:
         st.markdown(f"**Google Ads Account:** `{ads_account_id}`")
     
-    # Fetch GA revenue and purchases from paid sources only
+    # Fetch GA revenue and purchases separately for Cross Network and Paid Search
     with st.spinner("Fetching GA revenue and purchases from paid sources..."):
-        ga_data = fetch_ga4_paid_revenue(property_id, start_date, end_date)
-        total_revenue = ga_data['revenue'].sum() if not ga_data.empty else 0
-        total_purchases = ga_data['purchases'].sum() if not ga_data.empty else 0
+        # Get Cross Network data (Performance Max)
+        cross_network_data = fetch_ga4_paid_revenue_by_source(
+            property_id, start_date, end_date, source_filter="google / cpc"
+        )
+        cross_network_revenue = cross_network_data['revenue'].sum() if not cross_network_data.empty else 0
+        cross_network_purchases = cross_network_data['purchases'].sum() if not cross_network_data.empty else 0
+        
+        # Get Paid Search data
+        paid_search_data = fetch_ga4_paid_revenue_by_source(
+            property_id, start_date, end_date, source_filter="google / paidsearch"
+        )
+        paid_search_revenue = paid_search_data['revenue'].sum() if not paid_search_data.empty else 0
+        paid_search_purchases = paid_search_data['purchases'].sum() if not paid_search_data.empty else 0
+        
+        # Total GA metrics
+        total_revenue = cross_network_revenue + paid_search_revenue
+        total_purchases = cross_network_purchases + paid_search_purchases
     
     # Fetch Google Ads data
     with st.spinner("Fetching Google Ads performance data..."):
@@ -708,38 +722,30 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
         ].copy()
         
         if not filtered_breakdown.empty:
-            # Group by campaign type to get aggregated data
+            # Group by campaign type to get aggregated Google Ads data
             type_breakdown = filtered_breakdown.groupby('type').agg({
                 'cost': 'sum',
                 'clicks': 'sum',
                 'impressions': 'sum'
             }).reset_index()
             
-            # Fetch GA4 purchases by traffic source (Cross Network vs Paid Search)
-            with st.spinner("Fetching GA4 purchases by traffic source..."):
-                # Get Cross Network purchases (Performance Max)
-                cross_network_data = fetch_ga4_paid_revenue_by_source(
-                    property_id, start_date, end_date, source_filter="google / cpc"
-                )
-                cross_network_purchases = cross_network_data['purchases'].sum() if not cross_network_data.empty else 0
-                cross_network_revenue = cross_network_data['revenue'].sum() if not cross_network_data.empty else 0
-                
-                # Get Paid Search purchases
-                paid_search_data = fetch_ga4_paid_revenue_by_source(
-                    property_id, start_date, end_date, source_filter="google / paidsearch"
-                )
-                paid_search_purchases = paid_search_data['purchases'].sum() if not paid_search_data.empty else 0
-                paid_search_revenue = paid_search_data['revenue'].sum() if not paid_search_data.empty else 0
-            
             # Add GA4 purchase and revenue data to the type breakdown
-            type_breakdown['purchases'] = type_breakdown['type'].apply(
-                lambda x: cross_network_purchases if x == 'Performance Max' else paid_search_purchases
-            )
-            type_breakdown['revenue'] = type_breakdown['type'].apply(
-                lambda x: cross_network_revenue if x == 'Performance Max' else paid_search_revenue
-            )
+            # Match Performance Max with Cross Network GA data
+            performance_max_data = type_breakdown[type_breakdown['type'] == 'Performance Max'].copy()
+            if not performance_max_data.empty:
+                performance_max_data['purchases'] = cross_network_purchases
+                performance_max_data['revenue'] = cross_network_revenue
             
-            # Calculate metrics using actual GA4 data
+            # Match Paid Search with Paid Search GA data
+            paid_search_data = type_breakdown[type_breakdown['type'] == 'Paid Search'].copy()
+            if not paid_search_data.empty:
+                paid_search_data['purchases'] = paid_search_purchases
+                paid_search_data['revenue'] = paid_search_revenue
+            
+            # Combine the data
+            type_breakdown = pd.concat([performance_max_data, paid_search_data], ignore_index=True)
+            
+            # Calculate metrics using the combined data
             type_breakdown['CTR'] = np.where(
                 type_breakdown['impressions'] > 0,
                 (type_breakdown['clicks'] / type_breakdown['impressions']) * 100,
@@ -866,7 +872,6 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     # Add date range info
     st.caption(f"Date range: {start_date} to {end_date}")
     st.markdown('</div>', unsafe_allow_html=True)
-
 
 # Add this helper function to fetch GA4 data by source
 def fetch_ga4_paid_revenue_by_source(property_id, start_date, end_date, source_filter):
@@ -3874,6 +3879,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
