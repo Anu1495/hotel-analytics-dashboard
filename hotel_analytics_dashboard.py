@@ -831,7 +831,6 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     st.caption(f"Date range: {start_date} to {end_date}")
     st.markdown('</div>', unsafe_allow_html=True)
 
-
 # CORRECTED helper function using sessionSourceMedium
 def fetch_ga4_paid_revenue_by_source_medium(property_id, start_date, end_date, source_medium):
     """Fetch GA4 revenue and purchase conversion data for specific source/medium"""
@@ -3887,6 +3886,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
