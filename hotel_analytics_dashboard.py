@@ -554,18 +554,29 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     with col2:
         st.markdown(f"**Google Ads Account:** `{ads_account_id}`")
     
-    # Fetch GA revenue and purchases separately for Cross Network and Paid Search
+    # First, let's see what source/medium values are actually available in GA4
+    with st.spinner("Analyzing GA4 source/medium data..."):
+        source_medium_data = fetch_source_medium_data(property_id, start_date, end_date)
+        
+        # Find the exact source/medium values for paid traffic
+        paid_sources = source_medium_data[
+            source_medium_data['source_medium'].str.contains('google', case=False)
+        ]['source_medium'].unique()
+        
+        st.write("**Available Google traffic sources in GA4:**")
+        st.write(paid_sources)
+    
+    # Fetch GA revenue and purchases using the exact source/medium values from your data
     with st.spinner("Fetching GA revenue and purchases from paid sources..."):
-        # Get Cross Network data (Performance Max)
+        # Based on your GA4 data, use the exact source/medium values
         cross_network_data = fetch_ga4_paid_revenue_by_source(
-            property_id, start_date, end_date, source_filter="google / cpc"
+            property_id, start_date, end_date, source_filter="Cross-network"
         )
         cross_network_revenue = cross_network_data['revenue'].sum() if not cross_network_data.empty else 0
         cross_network_purchases = cross_network_data['purchases'].sum() if not cross_network_data.empty else 0
         
-        # Get Paid Search data
         paid_search_data = fetch_ga4_paid_revenue_by_source(
-            property_id, start_date, end_date, source_filter="google / paidsearch"
+            property_id, start_date, end_date, source_filter="Paid Search"
         )
         paid_search_revenue = paid_search_data['revenue'].sum() if not paid_search_data.empty else 0
         paid_search_purchases = paid_search_data['purchases'].sum() if not paid_search_data.empty else 0
@@ -573,6 +584,8 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
         # Total GA metrics
         total_revenue = cross_network_revenue + paid_search_revenue
         total_purchases = cross_network_purchases + paid_search_purchases
+        
+        st.write(f"**GA4 Purchase Data:** Cross-network: {cross_network_purchases}, Paid Search: {paid_search_purchases}")
     
     # Fetch Google Ads data
     with st.spinner("Fetching Google Ads performance data..."):
@@ -609,7 +622,7 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                     if ('performance max' in name_lower or 'pmax' in name_lower or 
                         'cross network' in name_lower or 'p-max' in name_lower or
                         'cross-network' in name_lower):
-                        return 'Performance Max'
+                        return 'Cross-network'
                     # Then check for Paid Search
                     elif ('search' in name_lower or 'brand' in name_lower or 
                           'non-brand' in name_lower or 'non brand' in name_lower):
@@ -641,32 +654,6 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     profit = total_revenue - total_spend
     roi = (total_revenue / total_spend) if total_spend > 0 else 0
     cpa = (total_spend / total_purchases) if total_purchases > 0 else 0
-    
-    # Determine ROI classification
-    if roi == 0:
-        roi_class = "N/A (No Spend)"
-        roi_color = "gray"
-    elif roi < 5:
-        roi_class = "Horrible"
-        roi_color = "#FF0000"  # Red
-    elif 5 <= roi < 10:
-        roi_class = "Bad"
-        roi_color = "#FF6B6B"  # Light red
-    elif 10 <= roi < 15:
-        roi_class = "OK"
-        roi_color = "#FFD166"  # Yellow
-    elif 15 <= roi < 20:
-        roi_class = "Good"
-        roi_color = "#06D6A0"  # Green
-    elif 20 <= roi < 25:
-        roi_class = "Great"
-        roi_color = "#118AB2"  # Blue
-    elif 26 <= roi < 30:
-        roi_class = "Excellent"
-        roi_color = "#118AB2"  # Blue
-    else:
-        roi_class = "Most Excellent"
-        roi_color = "#073B4C"  # Dark blue
     
     # Display metrics in columns
     col1, col2, col3 = st.columns(3)
@@ -702,7 +689,9 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
             f"{total_impressions:,.0f}",
             help="Total impressions from Google Ads"
         )
-        # Custom ROI metric with classification
+        # Custom ROI metric
+        roi_color = "#06D6A0" if roi >= 15 else "#FFD166" if roi >= 10 else "#EA4335"
+        roi_class = "Good" if roi >= 15 else "OK" if roi >= 10 else "Needs Improvement"
         st.markdown(f"""
         <div style="border-left: 4px solid {roi_color}; padding-left: 12px; margin-bottom: 16px;">
             <div style="font-size: 14px; color: #666; margin-bottom: -10px;">ROI</div>
@@ -716,9 +705,9 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     st.markdown("### 🔍 Google Ads Spend Breakdown by Campaign Type")
     
     if not spend_breakdown.empty and all(col in spend_breakdown.columns for col in ['cost', 'clicks', 'impressions', 'type']):
-        # Filter for only Performance Max (Cross Network) and Paid Search campaigns
+        # Filter for only Cross-network and Paid Search campaigns
         filtered_breakdown = spend_breakdown[
-            spend_breakdown['type'].str.contains('Performance Max|Paid Search')
+            spend_breakdown['type'].str.contains('Cross-network|Paid Search')
         ].copy()
         
         if not filtered_breakdown.empty:
@@ -730,20 +719,12 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
             }).reset_index()
             
             # Add GA4 purchase and revenue data to the type breakdown
-            # Match Performance Max with Cross Network GA data
-            performance_max_data = type_breakdown[type_breakdown['type'] == 'Performance Max'].copy()
-            if not performance_max_data.empty:
-                performance_max_data['purchases'] = cross_network_purchases
-                performance_max_data['revenue'] = cross_network_revenue
-            
-            # Match Paid Search with Paid Search GA data
-            paid_search_data = type_breakdown[type_breakdown['type'] == 'Paid Search'].copy()
-            if not paid_search_data.empty:
-                paid_search_data['purchases'] = paid_search_purchases
-                paid_search_data['revenue'] = paid_search_revenue
-            
-            # Combine the data
-            type_breakdown = pd.concat([performance_max_data, paid_search_data], ignore_index=True)
+            type_breakdown['purchases'] = type_breakdown['type'].apply(
+                lambda x: cross_network_purchases if x == 'Cross-network' else paid_search_purchases
+            )
+            type_breakdown['revenue'] = type_breakdown['type'].apply(
+                lambda x: cross_network_revenue if x == 'Cross-network' else paid_search_revenue
+            )
             
             # Calculate metrics using the combined data
             type_breakdown['CTR'] = np.where(
@@ -837,33 +818,9 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
                 height=300,
                 use_container_width=True
             )
-            
-            # Add summary statistics
-            st.markdown("**📊 Summary Statistics**")
-            col1, col2, col3, col4 = st.columns(4)
-            
-            total_filtered_spend = type_breakdown['cost'].sum()
-            total_filtered_purchases = type_breakdown['purchases'].sum()
-            total_filtered_revenue = type_breakdown['revenue'].sum()
-            total_filtered_impressions = type_breakdown['impressions'].sum()
-            total_filtered_clicks = type_breakdown['clicks'].sum()
-            
-            avg_ctr = (total_filtered_clicks / total_filtered_impressions) * 100 if total_filtered_impressions > 0 else 0
-            avg_cpc = total_filtered_spend / total_filtered_clicks if total_filtered_clicks > 0 else 0
-            avg_cpa = total_filtered_spend / total_filtered_purchases if total_filtered_purchases > 0 else 0
-            avg_roas = total_filtered_revenue / total_filtered_spend if total_filtered_spend > 0 else 0
-            
-            with col1:
-                st.metric("Total Filtered Spend", f"£{total_filtered_spend:,.2f}")
-            with col2:
-                st.metric("Total Purchases", f"{total_filtered_purchases:,.0f}")
-            with col3:
-                st.metric("Avg CTR", f"{avg_ctr:.2f}%")
-            with col4:
-                st.metric("Avg CPC", f"£{avg_cpc:.2f}")
                 
         else:
-            st.warning("No Performance Max or Paid Search campaigns found.")
+            st.warning("No Cross-network or Paid Search campaigns found.")
             st.write("All campaigns:")
             st.dataframe(spend_breakdown[['campaign_name', 'type', 'cost']])
     else:
@@ -873,6 +830,58 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     st.caption(f"Date range: {start_date} to {end_date}")
     st.markdown('</div>', unsafe_allow_html=True)
 
+
+# Update the helper function to use exact matching
+def fetch_ga4_paid_revenue_by_source(property_id, start_date, end_date, source_filter):
+    """Fetch GA4 revenue and purchase conversion data for specific paid sources using exact matching"""
+    try:
+        client = get_ga_client()
+        
+        # Use exact matching for the source/medium
+        request = RunReportRequest(
+            property=f"properties/{property_id}",
+            dimensions=[Dimension(name="date"), Dimension(name="sessionDefaultChannelGrouping")],
+            metrics=[
+                Metric(name="purchaseRevenue"),
+                Metric(name="eventCount")
+            ],
+            date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
+            dimension_filter=FilterExpression(
+                and_group=FilterExpressionList(
+                    expressions=[
+                        # Filter for specific channel grouping
+                        FilterExpression(filter=Filter(
+                            field_name="sessionDefaultChannelGrouping",
+                            string_filter=Filter.StringFilter(value=source_filter))),
+                        # Filter for purchase events only
+                        FilterExpression(filter=Filter(
+                            field_name="eventName",
+                            string_filter=Filter.StringFilter(value="purchase")))
+                    ]
+                )
+            ))
+        
+        response = client.run_report(request)
+        
+        data = []
+        for row in response.rows:
+            date = row.dimension_values[0].value
+            channel = row.dimension_values[1].value
+            revenue = float(row.metric_values[0].value)
+            purchase_count = float(row.metric_values[1].value)
+            
+            data.append({
+                'date': date,
+                'channel': channel,
+                'revenue': revenue,
+                'purchases': purchase_count
+            })
+        
+        return pd.DataFrame(data)
+        
+    except Exception as e:
+        st.error(f"Failed to fetch GA4 paid purchase data for {source_filter}: {str(e)}")
+        return pd.DataFrame(columns=['date', 'channel', 'revenue', 'purchases'])
 # Add this helper function to fetch GA4 data by source
 def fetch_ga4_paid_revenue_by_source(property_id, start_date, end_date, source_filter):
     """Fetch GA4 revenue and purchase conversion data for specific paid sources"""
@@ -3879,6 +3888,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
