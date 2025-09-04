@@ -542,7 +542,51 @@ def get_purchases_by_campaign(property_id, campaign_name, start_date, end_date):
     except Exception as e:
         st.error(f"Failed to fetch purchase data for campaign {campaign_name}: {str(e)}")
         return pd.DataFrame(columns=['date', 'revenue', 'purchases'])
+def fetch_channel_group_purchase_data(property_id, start_date, end_date):
+    """Fetch purchase events by default channel group from GA4"""
+    try:
+        client = get_ga_client()
         
+        # Request for sessions and purchases by default channel group
+        request = RunReportRequest(
+            property=f"properties/{property_id}",
+            dimensions=[Dimension(name="sessionDefaultChannelGroup")],
+            metrics=[
+                Metric(name="sessions"),
+                Metric(name="eventCount"),
+                Metric(name="purchaseRevenue")
+            ],
+            date_ranges=[DateRange(start_date=start_date, end_date=end_date)],
+            dimension_filter=FilterExpression(
+                filter=Filter(
+                    field_name="eventName",
+                    string_filter=Filter.StringFilter(value="purchase")
+                )
+            ),
+            limit=10000
+        )
+        
+        response = client.run_report(request)
+        
+        data = []
+        for row in response.rows:
+            channel_group = row.dimension_values[0].value
+            sessions = int(row.metric_values[0].value)
+            purchases = int(row.metric_values[1].value)
+            revenue = float(row.metric_values[2].value)
+            
+            data.append({
+                'channel_group': channel_group,
+                'sessions': sessions,
+                'purchases': purchases,
+                'revenue': revenue
+            })
+        
+        return pd.DataFrame(data)
+        
+    except Exception as e:
+        st.error(f"Failed to fetch purchase data by channel group: {str(e)}")
+        return pd.DataFrame(columns=['channel_group', 'sessions', 'purchases', 'revenue'])        
 def display_roi_metrics_card(property_id, property_name, ads_account_id, start_date, end_date):
     """Display ROI metrics card for the selected hotel with enhanced Google Ads data"""
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -554,38 +598,32 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     with col2:
         st.markdown(f"**Google Ads Account:** `{ads_account_id}`")
     
-    # First, let's see what source/medium values are actually available in GA4
-    with st.spinner("Analyzing GA4 source/medium data..."):
-        source_medium_data = fetch_source_medium_data(property_id, start_date, end_date)
+    # Fetch purchase data by channel group for Cross-network and Paid Search
+    with st.spinner("Fetching purchase data by channel group..."):
+        channel_group_data = fetch_channel_group_purchase_data(property_id, start_date, end_date)
         
-        # Find the exact source/medium values for paid traffic
-        paid_sources = source_medium_data[
-            source_medium_data['source_medium'].str.contains('google', case=False)
-        ]['source_medium'].unique()
-        
-        st.write("**Available Google traffic sources in GA4:**")
-        st.write(paid_sources)
-    
-    # Fetch GA revenue and purchases using the correct source/medium values
-    with st.spinner("Fetching GA revenue and purchases from paid sources..."):
-        # Based on your GA4 data screenshot, let's use the exact values
-        cross_network_data = fetch_ga4_paid_revenue_by_source_medium(
-            property_id, start_date, end_date, source_medium="google / cpc"
-        )
-        cross_network_revenue = cross_network_data['revenue'].sum() if not cross_network_data.empty else 0
-        cross_network_purchases = cross_network_data['purchases'].sum() if not cross_network_data.empty else 0
-        
-        paid_search_data = fetch_ga4_paid_revenue_by_source_medium(
-            property_id, start_date, end_date, source_medium="google / paidsearch"
-        )
-        paid_search_revenue = paid_search_data['revenue'].sum() if not paid_search_data.empty else 0
-        paid_search_purchases = paid_search_data['purchases'].sum() if not paid_search_data.empty else 0
-        
-        # Total GA metrics
-        total_revenue = cross_network_revenue + paid_search_revenue
-        total_purchases = cross_network_purchases + paid_search_purchases
-        
-        st.write(f"**GA4 Purchase Data:** Cross-network (google/cpc): {cross_network_purchases}, Paid Search (google/paidsearch): {paid_search_purchases}")
+        if not channel_group_data.empty:
+            # Filter for Cross-network and Paid Search only
+            paid_channel_data = channel_group_data[
+                channel_group_data['channel_group'].isin(['Cross-network', 'Paid Search'])
+            ]
+            
+            # Calculate combined metrics from channel groups
+            channel_revenue = paid_channel_data['revenue'].sum()
+            channel_purchases = paid_channel_data['purchases'].sum()
+            channel_sessions = paid_channel_data['sessions'].sum()
+            
+            # Calculate conversion rate
+            channel_conversion_rate = (channel_purchases / channel_sessions * 100) if channel_sessions > 0 else 0
+            
+            # Calculate average order value
+            channel_avg_order_value = (channel_revenue / channel_purchases) if channel_purchases > 0 else 0
+        else:
+            channel_revenue = 0
+            channel_purchases = 0
+            channel_sessions = 0
+            channel_conversion_rate = 0
+            channel_avg_order_value = 0
     
     # Fetch Google Ads data
     with st.spinner("Fetching Google Ads performance data..."):
@@ -650,25 +688,24 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
             total_impressions = 0
             spend_breakdown = pd.DataFrame(columns=['campaign_id', 'campaign_name', 'cost', 'clicks', 'impressions', 'type'])
     
-    # Calculate ROI metrics using GA purchases
-    profit = total_revenue - total_spend
-    roi = (total_revenue / total_spend) if total_spend > 0 else 0
-    cpa = (total_spend / total_purchases) if total_purchases > 0 else 0
+    # Calculate ROI metrics using Channel Group purchases and revenue
+    profit = channel_revenue - total_spend
+    roi = (channel_revenue / total_spend) if total_spend > 0 else 0
+    cpa = (total_spend / channel_purchases) if channel_purchases > 0 else 0
     
     # Display metrics in columns
     col1, col2, col3 = st.columns(3)
     
     with col1:
         st.metric(
-            "Revenue from Paid Sources",
-            f"£{total_revenue:,.2f}",
-            help="Total revenue from Google Ads traffic (Cross Network and Paid Search)"
+            "Revenue (Channel Groups)",
+            f"£{channel_revenue:,.2f}",
+            help="Revenue from Cross-network + Paid Search channel groups"
         )
         st.metric(
-            "GA4 Purchases (Paid Sources)",
-            f"{total_purchases:,.0f}",
-            f"CPA: £{cpa:,.2f}",
-            help="Purchase events from Google Ads traffic measured in GA4"
+            "Purchases (Channel Groups)",
+            f"{channel_purchases:,.0f}",
+            help="Purchases from Cross-network + Paid Search channel groups"
         )
     
     with col2:
@@ -689,144 +726,153 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
             f"{total_impressions:,.0f}",
             help="Total impressions from Google Ads"
         )
-        # Custom ROI metric
-        roi_color = "#06D6A0" if roi >= 15 else "#FFD166" if roi >= 10 else "#EA4335"
-        roi_class = "Good" if roi >= 15 else "OK" if roi >= 10 else "Needs Improvement"
-        st.markdown(f"""
-        <div style="border-left: 4px solid {roi_color}; padding-left: 12px; margin-bottom: 16px;">
-            <div style="font-size: 14px; color: #666; margin-bottom: -10px;">ROI</div>
-            <div style="font-size: 28px; font-weight: bold; margin-bottom: -10px;">{roi:,.2f}</div>
-            <div style="font-size: 16px; color: {roi_color}; font-weight: bold;">{roi_class}</div>
-            <div style="font-size: 12px; color: #666;">£{profit:,.2f} Profit</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric(
+            "CPA",
+            f"£{cpa:,.2f}",
+            help="Cost per acquisition based on channel group purchases"
+        )
     
-    # Display spend breakdown with campaign type filter
-    st.markdown("### 🔍 Google Ads Spend Breakdown by Campaign Type")
+    # Custom ROI metric (calculated using Channel Group revenue)
+    roi_color = "#06D6A0" if roi >= 15 else "#FFD166" if roi >= 10 else "#EA4335"
+    roi_class = "Good" if roi >= 15 else "OK" if roi >= 10 else "Needs Improvement"
+    st.markdown(f"""
+    <div style="border-left: 4px solid {roi_color}; padding-left: 12px; margin-bottom: 16px;">
+        <div style="font-size: 14px; color: #666; margin-bottom: -10px;">ROI</div>
+        <div style="font-size: 28px; font-weight: bold; margin-bottom: -10px;">{roi:,.2f}</div>
+        <div style="font-size: 16px; color: {roi_color}; font-weight: bold;">{roi_class}</div>
+        <div style="font-size: 12px; color: #666;">£{profit:,.2f} Profit</div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    if not spend_breakdown.empty and all(col in spend_breakdown.columns for col in ['cost', 'clicks', 'impressions', 'type']):
-        # Filter for only Performance Max and Paid Search campaigns
-        filtered_breakdown = spend_breakdown[
-            spend_breakdown['type'].str.contains('Performance Max|Paid Search')
-        ].copy()
+    # Add date range info
+    st.caption(f"Date range: {start_date} to {end_date}")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    with st.spinner("Fetching purchase events from GA4 by channel group..."):
+        # Fetch purchase data for all channel groups
+        purchase_data = fetch_channel_group_purchase_data(property_id, start_date, end_date)
         
-        if not filtered_breakdown.empty:
-            # Group by campaign type to get aggregated Google Ads data
-            type_breakdown = filtered_breakdown.groupby('type').agg({
-                'cost': 'sum',
-                'clicks': 'sum',
-                'impressions': 'sum'
-            }).reset_index()
+        if not purchase_data.empty:
+            # Filter to only include Cross-network and Paid Search
+            filtered_data = purchase_data[
+                purchase_data['channel_group'].isin(['Cross-network', 'Paid Search'])
+            ].copy()
             
-            # Add GA4 purchase and revenue data to the type breakdown
-            # Map Google Ads campaign types to GA4 source/medium data
-            type_breakdown['purchases'] = type_breakdown['type'].apply(
-                lambda x: cross_network_purchases if x == 'Performance Max' else paid_search_purchases
-            )
-            type_breakdown['revenue'] = type_breakdown['type'].apply(
-                lambda x: cross_network_revenue if x == 'Performance Max' else paid_search_revenue
-            )
-            
-            # Calculate metrics using the combined data
-            type_breakdown['CTR'] = np.where(
-                type_breakdown['impressions'] > 0,
-                (type_breakdown['clicks'] / type_breakdown['impressions']) * 100,
-                0
-            )
-            type_breakdown['CPC'] = np.where(
-                type_breakdown['clicks'] > 0,
-                type_breakdown['cost'] / type_breakdown['clicks'],
-                0
-            )
-            type_breakdown['CPA'] = np.where(
-                type_breakdown['purchases'] > 0,
-                type_breakdown['cost'] / type_breakdown['purchases'],
-                0
-            )
-            type_breakdown['ROAS'] = np.where(
-                type_breakdown['cost'] > 0,
-                type_breakdown['revenue'] / type_breakdown['cost'],
-                0
-            )
-            type_breakdown['% of Total Spend'] = np.where(
-                total_spend > 0,
-                (type_breakdown['cost'] / total_spend) * 100,
-                0
-            )
-            
-            # Replace infinities and NaN with 0
-            type_breakdown = type_breakdown.replace([np.inf, -np.inf], np.nan).fillna(0)
-            
-            # Format the table
-            display_columns = [
-                'type', 'cost', 'clicks', 'impressions', 
-                'purchases', 'revenue', 'CTR', 'CPC', 'CPA', 'ROAS', '% of Total Spend'
-            ]
-            
-            styled_breakdown = (
-                type_breakdown[display_columns]
-                .rename(columns={
-                    'type': 'Campaign Type',
-                    'cost': 'Spend (£)',
-                    'clicks': 'Clicks',
-                    'impressions': 'Impressions',
+            if not filtered_data.empty:
+                # Format the data to match your image
+                formatted_data = filtered_data.groupby('channel_group').agg({
+                    'sessions': 'sum',
+                    'purchases': 'sum',
+                    'revenue': 'sum'
+                }).reset_index()
+                
+                # Calculate conversion rate
+                formatted_data['conversion_rate'] = (formatted_data['purchases'] / formatted_data['sessions']) * 100
+                
+                # Add average order value
+                formatted_data['avg_order_value'] = formatted_data['revenue'] / formatted_data['purchases']
+                
+                # Replace infinities and NaN with 0
+                formatted_data = formatted_data.replace([np.inf, -np.inf], np.nan).fillna(0)
+                
+                # Format to match your image structure
+                formatted_data = formatted_data.rename(columns={
+                    'channel_group': 'Channel Group',
+                    'sessions': 'Sessions',
                     'purchases': 'Purchases',
                     'revenue': 'Revenue (£)',
-                    'CTR': 'CTR (%)',
-                    'CPC': 'CPC (£)',
-                    'CPA': 'CPA (£)',
-                    'ROAS': 'ROAS',
-                    '% of Total Spend': '% of Spend'
+                    'conversion_rate': 'Conversion Rate (%)',
+                    'avg_order_value': 'Avg. Order Value (£)'
                 })
-                .sort_values('Spend (£)', ascending=False)
-                .style.format({
-                    'Spend (£)': '£{:,.2f}',
-                    'Clicks': '{:,.0f}',
-                    'Impressions': '{:,.0f}',
-                    'Purchases': '{:,.0f}',
-                    'Revenue (£)': '£{:,.2f}',
-                    'CTR (%)': '{:.2f}%',
-                    'CPC (£)': '£{:,.2f}',
-                    'CPA (£)': '£{:,.2f}',
-                    'ROAS': '{:.2f}',
-                    '% of Spend': '{:.1f}%'
-                })
-                .background_gradient(cmap='Blues', subset=['Spend (£)', 'Impressions'])
-                .background_gradient(cmap='Greens', subset=['Clicks', 'Purchases', 'Revenue (£)'])
-                .background_gradient(cmap='Reds', subset=['CPC (£)', 'CPA (£)'])
-                .background_gradient(cmap='Purples', subset=['ROAS'])
-            )
-            
-            st.dataframe(styled_breakdown, height=200, use_container_width=True)
-            
-            # Show individual campaigns for reference
-            st.markdown("**Individual Campaigns**")
-            st.dataframe(
-                filtered_breakdown[['campaign_name', 'type', 'cost', 'clicks', 'impressions']]
-                .rename(columns={
-                    'campaign_name': 'Campaign Name',
-                    'type': 'Campaign Type',
-                    'cost': 'Spend (£)',
-                    'clicks': 'Clicks',
-                    'impressions': 'Impressions'
-                })
-                .sort_values('Spend (£)', ascending=False)
-                .style.format({
-                    'Spend (£)': '£{:,.2f}',
-                    'Clicks': '{:,.0f}',
-                    'Impressions': '{:,.0f}'
-                }),
-                height=300,
-                use_container_width=True
-            )
                 
+                # Display the table
+                st.dataframe(
+                    formatted_data.style.format({
+                        'Sessions': '{:,.0f}',
+                        'Purchases': '{:,.0f}',
+                        'Revenue (£)': '£{:,.2f}',
+                        'Conversion Rate (%)': '{:.2f}%',
+                        'Avg. Order Value (£)': '£{:,.2f}'
+                    }).background_gradient(cmap='Greens', subset=['Purchases', 'Revenue (£)'])
+                    .background_gradient(cmap='Blues', subset=['Sessions'])
+                    .background_gradient(cmap='Purples', subset=['Conversion Rate (%)', 'Avg. Order Value (£)']),
+                    height=200,
+                    use_container_width=True
+                )
+                
+                # Add a note about the data
+                st.caption("Note: Data shows purchase events for Cross-network and Paid Search channel groups only")
+            else:
+                st.warning("No purchase data available for Cross-network or Paid Search channel groups")
         else:
-            st.warning("No Performance Max or Paid Search campaigns found.")
-            st.write("All campaigns:")
-            st.dataframe(spend_breakdown[['campaign_name', 'type', 'cost']])
-    else:
-        st.warning("No campaign data available or missing required columns")
+            st.warning("No purchase data available from GA4 by channel group")
     
+    # Add this code right after the channel group table display in the display_roi_metrics_card function
+
+    # Google Ads Spend Breakdown by Campaign Type
+    st.markdown("---")
+    st.subheader("📊 Google Ads Spend Breakdown by Campaign Type")
+
+    if not spend_breakdown.empty:
+        # Group by campaign type
+        type_breakdown = spend_breakdown.groupby('type').agg({
+            'cost': 'sum',
+            'clicks': 'sum',
+            'impressions': 'sum'
+        }).reset_index()
+        
+        # Calculate additional metrics
+        type_breakdown['ctr'] = (type_breakdown['clicks'] / type_breakdown['impressions']) * 100
+        type_breakdown['cpc'] = type_breakdown['cost'] / type_breakdown['clicks']
+        type_breakdown = type_breakdown.replace([np.inf, -np.inf], np.nan).fillna(0)
+        
+        # Detailed metrics table
+        st.markdown("**Detailed Performance by Campaign Type:**")
+        styled_breakdown = type_breakdown.rename(columns={
+            'type': 'Campaign Type',
+            'cost': 'Spend (£)',
+            'clicks': 'Clicks',
+            'impressions': 'Impressions',
+            'ctr': 'CTR (%)',
+            'cpc': 'CPC (£)'
+        })
+        
+        st.dataframe(
+            styled_breakdown.style.format({
+                'Spend (£)': '£{:,.2f}',
+                'Clicks': '{:,.0f}',
+                'Impressions': '{:,.0f}',
+                'CTR (%)': '{:.2f}%',
+                'CPC (£)': '£{:,.4f}'
+            }).background_gradient(
+                cmap='Blues',
+                subset=['Spend (£)', 'Impressions', 'Clicks']
+            ).background_gradient(
+                cmap='Greens',
+                subset=['CTR (%)']
+            ).background_gradient(
+                cmap='Reds',
+                subset=['CPC (£)'],
+                vmin=0,
+                vmax=2  # Reasonable CPC range
+            ),
+            height=200,
+            use_container_width=True
+        )
+        
+        # Add some insights
+        st.markdown("**💰 Spend Insights:**")
+        total_spend = type_breakdown['cost'].sum()
+        if total_spend > 0:
+            top_type = type_breakdown.loc[type_breakdown['cost'].idxmax()]
+            st.info(
+                f"• **{top_type['type']}** campaigns account for **£{top_type['cost']:,.2f}** "
+                f"({top_type['cost']/total_spend*100:.1f}%) of total spend\n"
+                f"• Average CPC across all campaigns: **£{type_breakdown['cpc'].mean():.2f}**\n"
+                f"• Overall CTR: **{type_breakdown['ctr'].mean():.2f}%**"
+            )
+    else:
+        st.warning("No Google Ads campaign data available for the selected period")
     # Add date range info
     st.caption(f"Date range: {start_date} to {end_date}")
     st.markdown('</div>', unsafe_allow_html=True)
