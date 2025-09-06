@@ -586,7 +586,8 @@ def fetch_channel_group_purchase_data(property_id, start_date, end_date):
         
     except Exception as e:
         st.error(f"Failed to fetch purchase data by channel group: {str(e)}")
-        return pd.DataFrame(columns=['channel_group', 'sessions', 'purchases', 'revenue'])        
+        return pd.DataFrame(columns=['channel_group', 'sessions', 'purchases', 'revenue'])    
+        
 def display_roi_metrics_card(property_id, property_name, ads_account_id, start_date, end_date):
     """Display ROI metrics card for the selected hotel with enhanced Google Ads data"""
     st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -807,8 +808,6 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
         else:
             st.warning("No purchase data available from GA4 by channel group")
     
-    # Add this code right after the channel group table display in the display_roi_metrics_card function
-
     # Google Ads Spend Breakdown by Campaign Type
     st.markdown("---")
     st.subheader("📊 Google Ads Spend Breakdown by Campaign Type")
@@ -876,6 +875,125 @@ def display_roi_metrics_card(property_id, property_name, ads_account_id, start_d
     # Add date range info
     st.caption(f"Date range: {start_date} to {end_date}")
     st.markdown('</div>', unsafe_allow_html=True)
+
+# Add this function to calculate overall hotel performance
+def calculate_overall_hotel_performance(selected_month_overall):
+    """Calculate overall performance across all hotels for the selected month"""
+    # Parse the selected month
+    month_name, year_str = selected_month_overall.rsplit(" ", 1)
+    year = int(year_str)
+    start_of_month, end_of_month = get_month_range(month_name, year)
+
+    # Ensure we don't go beyond today for the current month
+    today = datetime.now().date()
+    end_date_obj = datetime.strptime(end_of_month, "%Y-%m-%d").date()
+    if end_date_obj > today:
+        end_of_month = today.strftime("%Y-%m-%d")
+
+    # Define property to ads account mapping
+    property_to_ads_mapping = {
+        "308398104": "1296045272",  # Mercure Hyde Park
+        "308376609": "7711291295",   # Hotel Indigo Paddington
+        "308414291": "1896471470",   # Mercure London Paddington
+        "308386258": "3787940566",   # Mercure Nottingham City Centre
+        "471474513": "3569916895",   # Best Western Sheffield
+        "308381004": "5668854094"    # Holiday Inn Leicester Wiston
+    }
+
+    # Define property ID to name mapping
+    property_id_to_name = {
+        "308398104": "Mercure Hyde Park",
+        "308376609": "Hotel Indigo Paddington", 
+        "308414291": "Mercure London Paddington",
+        "308386258": "Mercure Nottingham City Centre",
+        "471474513": "Best Western Sheffield",
+        "308381004": "Holiday Inn Leicester Wigston"
+    }
+
+    # Initialize totals
+    total_revenue = 0
+    total_spend = 0
+    total_purchases = 0
+    hotel_data = []
+
+    # Create progress bar
+    progress_bar = st.progress(0)
+    total_properties = len(property_to_ads_mapping)
+
+    for i, (property_id, ads_account_id) in enumerate(property_to_ads_mapping.items()):
+        # Get property name for display
+        property_name = property_id_to_name.get(property_id, f"Property {property_id}")
+        
+        # Update progress
+        progress_bar.progress((i + 1) / total_properties, text=f"Processing {property_name}...")
+        
+        try:
+            # USE THE SAME METHOD AS ROI METRICS CARD - Fetch purchase data by channel group
+            with st.spinner(f"Fetching channel group data for {property_name}..."):
+                channel_group_data = fetch_channel_group_purchase_data(property_id, start_of_month, end_of_month)
+                
+                if not channel_group_data.empty:
+                    # Filter for Cross-network and Paid Search only (same as ROI metrics card)
+                    paid_channel_data = channel_group_data[
+                        channel_group_data['channel_group'].isin(['Cross-network', 'Paid Search'])
+                    ]
+                    
+                    # Calculate combined metrics from channel groups (same as ROI metrics card)
+                    property_revenue = paid_channel_data['revenue'].sum()
+                    property_purchases = paid_channel_data['purchases'].sum()
+                else:
+                    property_revenue = 0
+                    property_purchases = 0
+            
+            # Get Google Ads spend for selected month
+            property_spend = 0
+            ads_config = GoogleAdsConfig(customer_id=ads_account_id)
+            ads_manager = GoogleAdsManager(ads_config)
+            if ads_manager.initialize_client():
+                ads_data = ads_manager.fetch_google_ads_data(
+                    customer_id=ads_account_id,
+                    start_date=start_of_month,
+                    end_date=end_of_month
+                )
+                property_spend = ads_data['cost'].sum() if not ads_data.empty else 0
+            
+            # Add to totals
+            total_revenue += property_revenue
+            total_spend += property_spend
+            total_purchases += property_purchases
+            
+            # Calculate individual hotel ROI
+            property_roi = (property_revenue / property_spend) if property_spend > 0 else 0
+            property_profit = property_revenue - property_spend
+            property_cpa = (property_spend / property_purchases) if property_purchases > 0 else 0
+            
+            # Store individual hotel data
+            hotel_data.append({
+                'Hotel': property_name,
+                'Revenue': property_revenue,
+                'Ad Spend': property_spend,
+                'Purchases': property_purchases,
+                'CPA': property_cpa,
+                'Profit': property_profit,
+                'ROI': property_roi
+            })
+                
+        except Exception as e:
+            st.error(f"Error processing property {property_name} ({property_id}): {str(e)}")
+            continue
+
+    # Complete progress bar
+    progress_bar.progress(1.0, text="Calculation complete!")
+
+    return {
+        'total_revenue': total_revenue,
+        'total_spend': total_spend,
+        'total_purchases': total_purchases,
+        'hotel_data': hotel_data,
+        'start_date': start_of_month,
+        'end_date': end_of_month,
+        'month_name': selected_month_overall
+    }
 
 # CORRECTED helper function using sessionSourceMedium
 def fetch_ga4_paid_revenue_by_source_medium(property_id, start_date, end_date, source_medium):
@@ -2952,9 +3070,7 @@ def main():
     st.markdown('<h1 class="dashboard-title">📊 Ecommerce Dashboard</h1>', unsafe_allow_html=True)
     # Add this right after your st.markdown('<h1 class="dashboard-title">📊 Ecommerce Dashboard</h1>', unsafe_allow_html=True)
 
-    # Calculate overall ROI across all hotels
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    # Add this right after the Overall Hotel Performance section starts
+    # Overall Hotel Performance section
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.subheader("🏨 Overall Hotel Performance")
 
@@ -2969,136 +3085,92 @@ def main():
         help="Select the month to calculate overall performance across all hotels"
     )
 
-    # Parse the selected month
-    month_name, year_str = selected_month_overall.rsplit(" ", 1)
-    year = int(year_str)
-    start_of_month, end_of_month = get_month_range(month_name, year)
-
-    # Ensure we don't go beyond today for the current month
-    today = datetime.now().date()
-    end_date_obj = datetime.strptime(end_of_month, "%Y-%m-%d").date()
-    if end_date_obj > today:
-        end_of_month = today.strftime("%Y-%m-%d")
-
-    st.caption(f"Showing data for {selected_month_overall}")
-
-    # Calculate totals across all hotels using the selected month
-    total_revenue = 0
-    total_spend = 0
-    total_purchases = 0
-
-    # Define property to ads account mapping
-    property_to_ads_mapping = {
-        "308398104": "1296045272",  # Mercure Hyde Park
-        "308376609": "7711291295",   # Hotel Indigo Paddington
-        "308414291": "1896471470",   # Mercure London Paddington
-        "308386258": "3787940566",   # Mercure Nottingham City Centre
-        "471474513": "3569916895",   # Best Western Sheffield
-        "308381004": "5668854094"    # Holiday Inn Leicester Wiston
-    }
-
-    # Define property ID to name mapping
-    property_id_to_name = {
-        "308398104": "Mercure Hyde Park",
-        "308376609": "Hotel Indigo Paddington", 
-        "308414291": "Mercure London Paddington",
-        "308386258": "Mercure Nottingham City Centre",
-        "471474513": "Best Western Sheffield",
-        "308381004": "Holiday Inn Leicester Wigston"
-    }
-
-    # Create progress bar
-    progress_bar = st.progress(0)
-    total_properties = len(property_to_ads_mapping)
-
-    for i, (property_id, ads_account_id) in enumerate(property_to_ads_mapping.items()):
-        # Get property name for display
-        property_name = property_id_to_name.get(property_id, f"Property {property_id}")
-        
-        # Update progress
-        progress_bar.progress((i + 1) / total_properties, text=f"Processing {property_name}...")
-        
-        try:
-            # Get GA revenue and purchase data from paid sources for selected month
-            ga_data = fetch_ga4_paid_revenue(property_id, start_of_month, end_of_month)
-            property_revenue = ga_data['revenue'].sum() if not ga_data.empty else 0
-            property_purchases = ga_data['purchases'].sum() if not ga_data.empty else 0
-            total_revenue += property_revenue
-            total_purchases += property_purchases
+    if st.button("📊 Calculate Overall Performance", key="calculate_overall_btn"):
+        with st.spinner("Calculating performance across all hotels..."):
+            performance_data = calculate_overall_hotel_performance(selected_month_overall)
             
-            # Get Google Ads spend for selected month
-            ads_config = GoogleAdsConfig(customer_id=ads_account_id)
-            ads_manager = GoogleAdsManager(ads_config)
-            if ads_manager.initialize_client():
-                ads_data = ads_manager.fetch_google_ads_data(
-                    customer_id=ads_account_id,
-                    start_date=start_of_month,
-                    end_date=end_of_month
-                )
-                property_spend = ads_data['cost'].sum() if not ads_data.empty else 0
-                total_spend += property_spend
+            total_revenue = performance_data['total_revenue']
+            total_spend = performance_data['total_spend']
+            total_purchases = performance_data['total_purchases']
+            hotel_data = performance_data['hotel_data']
+            
+            # Calculate ROI metrics
+            if total_spend > 0:
+                overall_roi = total_revenue / total_spend
+                profit = total_revenue - total_spend
+                roi_class = "Excellent" if overall_roi >= 26 else "Great" if overall_roi >= 20 else "Good" if overall_roi >= 15 else "Ok" if overall_roi >= 10 else "Needs Improvement"
+                roi_color = "#06D6A0" if overall_roi >= 15 else "#FFD166" if overall_roi >= 10 else "#EA4335"
             else:
-                st.warning(f"Failed to connect to Google Ads for account {ads_account_id}")
-                
-        except Exception as e:
-            st.error(f"Error processing property {property_name} ({property_id}): {str(e)}")
-            continue
+                overall_roi = 0
+                profit = total_revenue
+                roi_class = "N/A (No Spend)"
+                roi_color = "#9E9E9E"
 
-    # Complete progress bar
-    progress_bar.progress(1.0, text="Calculation complete!")
+            # Calculate CPA
+            cpa = (total_spend / total_purchases) if total_purchases > 0 else 0
 
-    # Calculate ROI metrics
-    if total_spend > 0:
-        overall_roi = total_revenue / total_spend
-        profit = total_revenue - total_spend
-        roi_class = "Excellent" if overall_roi >= 26 else "Great" if overall_roi >= 20 else "Good" if overall_roi >= 15 else "Ok" if overall_roi >= 10 else "Needs Improvement"
-        roi_color = "#06D6A0" if overall_roi >= 15 else "#FFD166" if overall_roi >= 10 else "#EA4335"
-    else:
-        overall_roi = 0
-        profit = total_revenue
-        roi_class = "N/A (No Spend)"
-        roi_color = "#9E9E9E"
+            # Display KPIs in columns
+            col1, col2, col3, col4 = st.columns(4)
 
-    # Calculate CPA
-    cpa = (total_spend / total_purchases) if total_purchases > 0 else 0
+            with col1:
+                st.metric(
+                    "Total Revenue (All Hotels)",
+                    f"£{total_revenue:,.2f}",
+                    help=f"Revenue from paid sources across all hotels for {selected_month_overall}"
+                )
 
-    # Display KPIs in columns
-    col1, col2, col3, col4 = st.columns(4)
+            with col2:
+                st.metric(
+                    "Total Ad Spend (All Hotels)",
+                    f"£{total_spend:,.2f}",
+                    help=f"Total Google Ads spend across all hotels for {selected_month_overall}"
+                )
 
-    with col1:
-        st.metric(
-            "Total Revenue (All Hotels)",
-            f"£{total_revenue:,.2f}",
-            help=f"Revenue from paid sources across all hotels for {selected_month_overall}"
-        )
+            with col3:
+                st.metric(
+                    "Total Purchases (All Hotels)",
+                    f"{total_purchases:,.0f}",
+                    f"CPA: £{cpa:,.2f}",
+                    help=f"Purchase events from paid sources across all hotels for {selected_month_overall}"
+                )
 
-    with col2:
-        st.metric(
-            "Total Ad Spend (All Hotels)",
-            f"£{total_spend:,.2f}",
-            help=f"Total Google Ads spend across all hotels for {selected_month_overall}"
-        )
-
-    with col3:
-        st.metric(
-            "Total Purchases (All Hotels)",
-            f"{total_purchases:,.0f}",
-            f"CPA: £{cpa:,.2f}",
-            help=f"Purchase events from paid sources across all hotels for {selected_month_overall}"
-        )
-
-    with col4:
-        # Custom ROI metric with classification
-        st.markdown(f"""
-        <div style="border-left: 4px solid {roi_color}; padding-left: 12px;">
-            <div style="font-size: 14px; color: #666; margin-bottom: -10px;">Overall ROI</div>
-            <div style="font-size: 28px; font-weight: bold; margin-bottom: -10px;">{overall_roi:,.2f}</div>
-            <div style="font-size: 16px; color: {roi_color}; font-weight: bold;">{roi_class}</div>
-            <div style="font-size: 12px; color: #666;">£{profit:,.2f} Profit</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    st.caption(f"Data for {selected_month_overall}. ROI = Revenue / Ad Spend")
+            with col4:
+                # Custom ROI metric with classification
+                st.markdown(f"""
+                <div style="border-left: 4px solid {roi_color}; padding-left: 12px;">
+                    <div style="font-size: 14px; color: #666; margin-bottom: -10px;">Overall ROI</div>
+                    <div style="font-size: 28px; font-weight: bold; margin-bottom: -10px;">{overall_roi:,.2f}</div>
+                    <div style="font-size: 16px; color: {roi_color}; font-weight: bold;">{roi_class}</div>
+                    <div style="font-size: 12px; color: #666;">£{profit:,.2f} Profit</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            st.caption(f"Data for {selected_month_overall}. ROI = Revenue / Ad Spend")
+            
+            # Display individual hotel performance
+            st.subheader("📋 Individual Hotel Performance")
+            hotel_df = pd.DataFrame(hotel_data)
+            
+            if not hotel_df.empty:
+                st.dataframe(
+                    hotel_df.style.format({
+                        'Revenue': '£{:,.2f}',
+                        'Ad Spend': '£{:,.2f}',
+                        'Profit': '£{:,.2f}',
+                        'CPA': '£{:,.2f}',
+                        'ROI': '{:.2f}',
+                        'Purchases': '{:,.0f}'
+                    }).background_gradient(
+                        cmap='Greens',
+                        subset=['Revenue', 'Profit', 'ROI']
+                    ).background_gradient(
+                        cmap='Reds',
+                        subset=['Ad Spend', 'CPA']
+                    ),
+                    height=400,
+                    use_container_width=True
+                )
+    
     st.markdown('</div>', unsafe_allow_html=True)
      
     # Initialize date_ranges with a default value
