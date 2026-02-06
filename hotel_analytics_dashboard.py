@@ -14,7 +14,7 @@ import base64
 from urllib.parse import urlparse, parse_qs
 import requests
 # Set page config must be the first Streamlit command
-st.set_page_config(page_title="Ecommerce Dashboard", layout="wide", page_icon="📊")
+st.set_page_config(page_title="LTG Dashboard", layout="wide", page_icon="📊")
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
@@ -4006,3 +4006,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
