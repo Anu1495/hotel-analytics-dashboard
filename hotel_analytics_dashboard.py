@@ -3067,7 +3067,7 @@ def main():
     initialize_session_state()
     
     # Then proceed with the rest of your app
-    st.markdown('<h1 class="dashboard-title">📊 Ecommerce Dashboard</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="dashboard-title">📊 LTG Dashboard</h1>', unsafe_allow_html=True)
     # Add this right after your st.markdown('<h1 class="dashboard-title">📊 Ecommerce Dashboard</h1>', unsafe_allow_html=True)
 
     # Overall Hotel Performance section
@@ -4006,4 +4006,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
